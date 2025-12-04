@@ -1,0 +1,10 @@
+[
+    {
+        "id": "po1",
+        "name": "Jane Doe",
+        "role": "Senator",
+        "lat": 38.9072,
+        "lng": -77.0369,
+        "description": "Senior Senator."
+    }
+]

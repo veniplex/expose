@@ -1,0 +1,66 @@
+[
+    {
+        "id": "c1",
+        "name": "TechGlobal",
+        "industry": "Technology",
+        "lat": 37.7749,
+        "lng": -122.4194,
+        "description": "Leading provider of AI solutions."
+    },
+    {
+        "id": "c2",
+        "name": "EuroFinance",
+        "industry": "Finance",
+        "lat": 51.5074,
+        "lng": -0.1278,
+        "description": "Major European banking institution."
+    },
+    {
+        "id": "c3",
+        "name": "AsiaMotors",
+        "industry": "Automotive",
+        "lat": 35.6895,
+        "lng": 139.6917,
+        "description": "Innovative electric vehicle manufacturer."
+    },
+    {
+        "id": "c4",
+        "name": "NordicEnergy",
+        "industry": "Energy",
+        "lat": 59.3293,
+        "lng": 18.0686,
+        "description": "Sustainable energy solutions."
+    },
+    {
+        "id": "c5",
+        "name": "LatAmRetail",
+        "industry": "Retail",
+        "lat": -23.5505,
+        "lng": -46.6333,
+        "description": "Largest retail chain in South America."
+    },
+    {
+        "id": "c6",
+        "name": "OzMining",
+        "industry": "Mining",
+        "lat": -33.8688,
+        "lng": 151.2093,
+        "description": "Global mining operations."
+    },
+    {
+        "id": "c7",
+        "name": "AfriCom",
+        "industry": "Telecommunications",
+        "lat": -1.2921,
+        "lng": 36.8219,
+        "description": "Connecting the continent."
+    },
+    {
+        "id": "c8",
+        "name": "CanHealth",
+        "industry": "Healthcare",
+        "lat": 43.6532,
+        "lng": -79.3832,
+        "description": "Advanced medical research."
+    }
+]

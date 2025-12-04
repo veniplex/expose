@@ -186,7 +186,14 @@
         nodeGroup
             .append("circle")
             .attr("r", 5)
-            .attr("fill", (d) => (d.type === "company" ? "#3b82f6" : "#f472b6"))
+            .attr("fill", (d) => {
+                switch (d.type) {
+                    case "company": return "#3b82f6";
+                    case "politician": return "#ef4444";
+                    case "government": return "#eab308";
+                    default: return "#f472b6"; // personality and others
+                }
+            })
             .attr("stroke", "#fff")
             .attr("stroke-width", 1.5);
 
