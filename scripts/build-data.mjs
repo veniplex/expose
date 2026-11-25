@@ -64,7 +64,7 @@ const STRICT = process.argv.includes('--strict');
 const FULL = process.argv.includes('--full');
 const MAX_ENTITIES = 2500;
 const MAX_SOURCES = 4;
-const LS_MAX = Number(process.env.EXPOSE_LS_MAX) || 1500; // LittleSis matching covers the most notable entities first
+const LS_MAX = Number(process.env.EXPOSE_LS_MAX) || 2000; // LittleSis matching covers the most notable entities first
 const t0 = Date.now();
 const log = (...a) => console.log(`[${String(Math.round((Date.now() - t0) / 1000)).padStart(4)}s]`, ...a);
 
@@ -390,9 +390,9 @@ async function main() {
       if (s >= c.min) picked.push({ id: q, s });
     }
     for (const subs of subsOf.values()) {
-      for (const t of subs.map((id) => ({ id, s: sl.get(id) || 0 })).filter((x) => x.s >= 40).sort((x, y) => y.s - x.s).slice(0, 5)) picked.push(t);
+      for (const t of subs.map((id) => ({ id, s: sl.get(id) || 0 })).filter((x) => x.s >= 25).sort((x, y) => y.s - x.s).slice(0, 8)) picked.push(t);
     }
-    const uniq = [...new Map(picked.map((p) => [p.id, p])).values()].sort((x, y) => y.s - x.s).slice(0, 700);
+    const uniq = [...new Map(picked.map((p) => [p.id, p])).values()].sort((x, y) => y.s - x.s).slice(0, 900);
     for (const p of uniq) reg.set(p.id, { qid: p.id, hint: null, prio: 20, s: p.s });
     for (const [k, v] of await fetchEntities(uniq.map((p) => p.id))) items.set(k, v);
     dropNoData();
@@ -606,8 +606,9 @@ async function main() {
       for (const st of sts) {
         const T = inSet.get(st.v)?.qid;
         if (!T || T === S || !entIds.has(T)) continue;
-        // Memberships of countries in intergovernmental bodies would add hundreds of near-identical arcs: only for seeded governments.
-        if (pid === 'P463' && subj.kind === 'government' && !reg.get(S).seed) {
+        // Memberships of countries in intergovernmental bodies would add hundreds of near-identical arcs: for
+        // non-seeded governments only the (hand-picked) seeded bodies such as the UN, NATO or the WTO are kept.
+        if (pid === 'P463' && subj.kind === 'government' && !reg.get(S).seed && !reg.get(T).seed) {
           skippedGovMembership++;
           continue;
         }
