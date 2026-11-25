@@ -1,8 +1,23 @@
-import type { EntityKind } from '../types';
-import { KIND_LABEL, KIND_SHAPE } from '../config';
-import { h } from '../dom';
+import { kindMeta } from '../kinds';
 
-/** The small marker glyph used on the globe for a kind (circle / square / diamond). */
-export function KindIcon(kind: EntityKind): HTMLSpanElement {
-  return h('span.kind-ico', { 'data-shape': KIND_SHAPE[kind] ?? 2, title: KIND_LABEL[kind] ?? kind, 'aria-hidden': 'true' });
+const NS = 'http://www.w3.org/2000/svg';
+
+/**
+ * The entity-kind glyph as inline SVG (filled with currentColor). Same path data as the globe
+ * markers (see src/kinds.ts), so search results, dossier, lists and filter chips match the map.
+ */
+export function KindIcon(kind: string, size = 10): SVGSVGElement {
+  const k = kindMeta(kind);
+  const svg = document.createElementNS(NS, 'svg');
+  svg.setAttribute('class', 'kind-ico');
+  svg.setAttribute('viewBox', '-12 -12 24 24');
+  svg.setAttribute('width', String(size));
+  svg.setAttribute('height', String(size));
+  svg.setAttribute('aria-hidden', 'true');
+  svg.dataset.kind = k.id;
+  const path = document.createElementNS(NS, 'path');
+  path.setAttribute('d', k.path);
+  path.setAttribute('fill-rule', 'evenodd');
+  svg.appendChild(path);
+  return svg;
 }

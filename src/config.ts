@@ -1,4 +1,5 @@
-import type { EntityKind, LinkCategory } from './types';
+import type { EntityKind, LinkCategory, LinkOrigin } from './types';
+import { KINDS } from './kinds';
 
 /** GitHub repository (owner/name) used for "report an error" links. */
 export const REPOSITORY = 'veniplex/expose';
@@ -25,19 +26,17 @@ export const CATEGORY_BY_ID = Object.fromEntries(CATEGORIES.map((c) => [c.id, c]
   CategoryMeta
 >;
 
-export const KIND_LABEL: Record<EntityKind, string> = {
-  person: 'Person',
-  company: 'Company',
-  organization: 'Organisation',
-  government: 'Government',
-  fund: 'Fund',
-};
+/** Display label per kind (single source: src/kinds.ts). */
+export const KIND_LABEL: Record<EntityKind, string> = Object.fromEntries(KINDS.map((k) => [k.id, k.label])) as Record<
+  EntityKind,
+  string
+>;
 
-/** Marker shape per kind: 0 = circle (people), 1 = square (companies, funds), 2 = diamond (institutions). */
-export const KIND_SHAPE: Record<EntityKind, number> = {
-  person: 0,
-  company: 1,
-  fund: 1,
-  organization: 2,
-  government: 2,
+/** How an imported link's origin is credited in the expanded dossier row ("via …"). */
+export const ORIGIN_LABEL: Record<LinkOrigin, string> = {
+  wikidata: 'Wikidata',
+  curated: 'curated',
+  littlesis: 'LittleSis',
+  gleif: 'GLEIF',
+  sec: 'SEC EDGAR',
 };
