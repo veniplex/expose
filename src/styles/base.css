@@ -114,9 +114,12 @@ a {
   bottom: var(--gutter);
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-  max-width: 240px;
+  gap: 12px;
+  align-items: stretch;
+  width: 300px;
+  max-height: calc(100% - var(--header-h) - var(--gutter) * 2);
+  overflow: auto;
+  scrollbar-width: none;
 }
 
 .hint {
@@ -156,23 +159,38 @@ a {
     padding-bottom: 8px;
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.92) 0%, rgba(0, 0, 0, 0.75) 70%, transparent 100%);
   }
+  /* phones: the filters are a popover sheet opened from the header's "Filters" button */
   .filters {
     position: absolute;
-    left: 0;
-    right: 0;
+    left: calc(var(--gutter) + var(--safe-l));
+    right: calc(var(--gutter) + var(--safe-r));
+    top: calc(var(--top-h, 110px) + 4px);
     bottom: auto;
-    top: var(--top-h, 110px);
-    max-width: none;
-    flex-direction: row;
-    flex-wrap: nowrap;
-    align-items: center;
-    overflow-x: auto;
-    overscroll-behavior-x: contain;
-    scrollbar-width: none;
-    padding: 0 calc(var(--gutter) + var(--safe-r)) 4px calc(var(--gutter) + var(--safe-l));
-  }
-  .filters::-webkit-scrollbar {
+    width: auto;
+    max-height: min(70dvh, calc(100dvh - var(--top-h, 110px) - 24px));
+    overflow: auto;
+    overscroll-behavior: contain;
+    padding: 12px 14px 14px;
+    background: var(--panel-solid);
+    border: 1px solid var(--line-2);
+    z-index: 8 !important;
     display: none;
+  }
+  .filters.open {
+    display: flex;
+  }
+  .filters-h {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: -6px -8px -4px 0;
+  }
+  .filters-btn {
+    display: inline-flex;
+    margin-left: auto;
+  }
+  .filters-btn + .about-btn {
+    margin-left: 0;
   }
   .hint {
     display: none;

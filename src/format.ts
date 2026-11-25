@@ -8,7 +8,9 @@ export function years(l: Pick<Link, 'since' | 'until'>): string {
   return '';
 }
 
-export const isPast = (l: Link): boolean => l.until !== undefined && l.until !== null;
+/** A relation counts as past when it has an end year or is flagged `ended` (end year unknown). */
+export const isPast = (l: Pick<Link, 'until' | 'ended'>): boolean =>
+  l.ended === true || (l.until !== undefined && l.until !== null);
 
 export function formatDate(iso: string): string {
   const d = new Date(iso);

@@ -5,9 +5,9 @@
   "type": "module",
   "description": "Interactive 3D globe showing how powerful people, companies, funds and governments are connected, backed by public sources.",
   "scripts": {
-    "predev": "node tools/gen-land.mjs",
+    "predev": "node tools/gen-land.mjs && node tools/gen-geo.mjs",
     "dev": "vite",
-    "prebuild": "node tools/gen-land.mjs",
+    "prebuild": "node tools/gen-land.mjs && node tools/gen-geo.mjs",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "data": "node scripts/build-data.mjs",

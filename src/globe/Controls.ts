@@ -7,8 +7,8 @@ export interface ControlHandlers {
   /** pointer moved by (dx, dy) CSS px while dragging */
   drag(dx: number, dy: number, dtMs: number): void;
   dragEnd(): void;
-  /** multiply zoom by `factor` */
-  zoom(factor: number): void;
+  /** multiply zoom by `factor`, keeping the surface point under (x, y) in place when given */
+  zoom(factor: number, x?: number, y?: number, pinch?: 'start' | 'move'): void;
   tap(x: number, y: number, coarse: boolean): void;
   doubleTap(x: number, y: number): void;
   hover(x: number, y: number): void;
@@ -20,6 +20,7 @@ export interface ControlHandlers {
 export class Controls {
   private pointers = new Map<number, { x: number; y: number; sx: number; sy: number; t: number; type: string }>();
   private pinchDist = 0;
+  private pinchFresh = false;
   private moved = 0;
   private wasMulti = false;
   private lastTap = { t: 0, x: 0, y: 0 };
@@ -60,6 +61,7 @@ export class Controls {
     } else {
       this.wasMulti = true;
       this.pinchDist = this.spread();
+      this.pinchFresh = true;
     }
     this.lastMove = performance.now();
     this.h.interact();
@@ -84,7 +86,11 @@ export class Controls {
       ptr.x = p.x;
       ptr.y = p.y;
       const d = this.spread();
-      if (this.pinchDist > 0 && d > 0) this.h.zoom(d / this.pinchDist);
+      if (this.pinchDist > 0 && d > 0) {
+        const ps = [...this.pointers.values()];
+        this.h.zoom(d / this.pinchDist, (ps[0].x + ps[1].x) / 2, (ps[0].y + ps[1].y) / 2, this.pinchFresh ? 'start' : 'move');
+        this.pinchFresh = false;
+      }
       this.pinchDist = d;
       this.moved += 100;
       return;
@@ -141,6 +147,8 @@ export class Controls {
     e.preventDefault();
     this.h.interact();
     const delta = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
-    this.h.zoom(Math.exp(-delta * 0.0015));
+    const p = this.local(e);
+    // clamp so a single fast trackpad fling can't jump across the whole zoom range
+    this.h.zoom(Math.exp(-Math.max(-240, Math.min(240, delta)) * 0.0022), p.x, p.y);
   };
 }

@@ -1,6 +1,7 @@
 import type { Entity } from '../types';
 import type { GraphIndex } from '../data';
-import { KIND_LABEL } from '../config';
+import type { Store } from '../store';
+import { kindLabel } from '../kinds';
 import { h, icon, ICONS } from '../dom';
 import { search } from '../search';
 import { KindIcon } from './KindIcon';
@@ -18,12 +19,13 @@ export class SearchBox {
 
   constructor(
     private index: GraphIndex,
+    private store: Store,
     private onSelect: (id: string) => void,
   ) {
     this.input = h('input', {
       id: 'q',
       type: 'search',
-      placeholder: 'Search a person or company',
+      placeholder: 'Search a person, company, fund…',
       autocomplete: 'off',
       autocapitalize: 'off',
       spellcheck: 'false',
@@ -32,7 +34,7 @@ export class SearchBox {
       'aria-autocomplete': 'list',
       'aria-expanded': 'false',
       'aria-controls': 'search-results',
-      'aria-label': 'Search a person, company, fund or government',
+      'aria-label': 'Search a person, company, fund, party, government, media outlet or organisation',
     });
     this.list = h('ul.search-results.panel', { id: 'search-results', role: 'listbox', hidden: true, 'aria-label': 'Search results' });
     this.el = h(
@@ -61,7 +63,7 @@ export class SearchBox {
   }
 
   private run(): void {
-    this.results = search(this.index, this.input.value, 8);
+    this.results = search(this.index, this.input.value, 8, (e) => !this.store.state.kinds.has(e.kind));
     this.active = this.results.length ? 0 : -1;
     this.render();
   }
@@ -75,6 +77,7 @@ export class SearchBox {
             h(
               'li.result',
               {
+                class: this.store.state.kinds.has(e.kind) ? null : 'hidden-kind',
                 id: `opt-${i}`,
                 role: 'option',
                 'aria-selected': String(i === this.active),
@@ -84,7 +87,12 @@ export class SearchBox {
               KindIcon(e.kind),
               h('span.name', null, ...highlight(e.name, q)),
               h('span.deg', null, h('b', null, String(this.index.degree.get(e.id) ?? 0)), (this.index.degree.get(e.id) ?? 0) === 1 ? ' link' : ' links'),
-              h('span.sub', null, `${KIND_LABEL[e.kind] ?? e.kind}${e.place ? ' · ' + e.place : ''}`),
+              h(
+                'span.sub',
+                null,
+                `${kindLabel(e.kind)}${e.place ? ' · ' + e.place : ''}`,
+                this.store.state.kinds.has(e.kind) ? null : h('span.tag', { title: 'This type is hidden by the filters; choosing it shows the type again' }, 'hidden'),
+              ),
             ),
           )
         : [h('li.empty', { role: 'option', 'aria-disabled': 'true' }, 'No match in the dataset')]),

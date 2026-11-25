@@ -1,35 +1,68 @@
 import type { GraphIndex } from '../data';
+import type { CountryLabel } from './geoAssets';
 
-export type LabelTier = 'selected' | 'hover' | 'highlight' | 'neighbour' | 'top';
+export type LabelTier = 'selected' | 'hover' | 'highlight' | 'neighbour' | 'top' | 'dim' | 'country';
 
 interface LabelEl {
   el: HTMLDivElement;
   w: number;
   h: number;
-  tier: LabelTier;
+  tier: LabelTier | '';
   shown: boolean;
+  x: number;
+  y: number;
+  o: number;
+  /** frame in which it was last placed (for pool eviction) */
+  seen: number;
 }
 
-interface Box {
+export interface Box {
   x: number;
   y: number;
   w: number;
   h: number;
 }
 
-const overlap = (a: Box, b: Box) =>
-  a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+export interface LabelFrame {
+  /** x, y, facing per node index (facing < 0: hidden / behind) */
+  screen: Float32Array;
+  /** on-screen marker radius per node index, CSS px */
+  radius: (i: number) => number;
+  /** node indices in label priority order (most influential first) */
+  rank: Int32Array;
+  influence: Float64Array;
+  indexOf: Map<string, number>;
+  selected: string | null;
+  w: number;
+  h: number;
+  /** 0 = overview … 1 = closest zoom */
+  zf: number;
+  /** show general (non-focus) labels, and how prominently */
+  ambient: 'full' | 'dim' | 'off';
+  blockers: Box[];
+  /** true when a visible marker other than node `self` intersects the box */
+  hitsMarker(b: Box, self: number): boolean;
+  /** project lat/lon to CSS px; `f` = facing (≤ 0: behind) */
+  project(lat: number, lon: number): { x: number; y: number; f: number };
+}
+
+const overlap = (a: Box, b: Box) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+const POOL_MAX = 220;
 
 /**
  * Crisp HTML labels over the canvas with greedy collision avoidance, plus the targeting reticle.
- * Candidates arrive in priority order; each is tried right of its marker, then left; if both
- * collide with an already placed label it is hidden for this frame.
+ * Focus labels (selected, hovered, neighbours) come first; then — progressively with zoom —
+ * the most influential visible entities, then country names at close zoom. The number of label
+ * elements touched per frame is capped, so the DOM cost doesn't grow with the dataset.
  */
 export class Labels {
   readonly root: HTMLDivElement;
   private pool = new Map<string, LabelEl>();
-  private order: { id: string; tier: LabelTier }[] = [];
+  private fixed: { id: string; tier: LabelTier }[] = [];
   private reticle: HTMLDivElement;
+  private countries: CountryLabel[] = [];
+  private frameNo = 0;
 
   constructor(private index: GraphIndex) {
     this.root = document.createElement('div');
@@ -40,102 +73,220 @@ export class Labels {
     this.reticle.innerHTML =
       '<svg viewBox="-20 -20 40 40" width="40" height="40"><circle r="10" /><path d="M-17 0h6M11 0h6M0 -17v6M0 11v6" /><circle class="core" r="3" /></svg>';
     this.root.appendChild(this.reticle);
+    // label widths depend on the web fonts: re-measure once they are in
+    document.fonts?.ready.then(() => {
+      for (const l of this.pool.values()) l.w = 0;
+    });
   }
 
-  /** Set the candidate list in priority order (first = most important). */
-  setCandidates(list: { id: string; tier: LabelTier }[]): void {
-    this.order = list;
-    const keep = new Set(list.map((c) => c.id));
-    for (const [id, l] of this.pool) {
-      if (!keep.has(id)) {
-        l.el.remove();
-        this.pool.delete(id);
-      }
-    }
-    for (const c of list) {
-      let l = this.pool.get(c.id);
-      if (!l) {
-        const el = document.createElement('div');
-        el.className = 'glabel';
-        const name = this.index.byId.get(c.id)?.name ?? c.id;
-        el.textContent = name.length > 28 ? name.slice(0, 26).trimEnd() + '…' : name;
-        this.root.appendChild(el);
-        l = { el, w: 0, h: 0, tier: c.tier, shown: true };
-        this.pool.set(c.id, l);
-      }
-      if (l.tier !== c.tier || !l.w) {
-        l.tier = c.tier;
-        l.el.dataset.tier = c.tier;
-        l.w = 0;
-      }
-    }
-    // measure in one pass (avoid interleaved layout reads/writes)
-    for (const l of this.pool.values()) {
-      if (!l.w) {
-        l.el.style.transform = 'translate(-9999px,0)';
-        l.el.style.visibility = 'visible';
-      }
-    }
-    for (const l of this.pool.values()) {
-      if (!l.w) {
-        l.w = l.el.offsetWidth;
-        l.h = l.el.offsetHeight;
-      }
-    }
+  /** Focus labels in priority order (first = most important). */
+  setFixed(list: { id: string; tier: LabelTier }[]): void {
+    this.fixed = list;
   }
 
-  /**
-   * Position labels. `screen` holds x, y, facing per node index; `size` marker sizes in px.
-   * `obstacles` are boxes (e.g. the reticle) labels must not cover.
-   */
-  layout(
-    screen: Float32Array,
-    indexOf: Map<string, number>,
-    size: Float32Array,
-    selected: string | null,
-    w: number,
-    h: number,
-    blockers: Box[],
-  ): void {
-    const placed: Box[] = [...blockers];
-    // reserve every visible marker of a label candidate so labels don't sit on other markers
-    for (const c of this.order) {
-      const i = indexOf.get(c.id);
-      if (i === undefined || screen[i * 3 + 2] < 0.12) continue;
-      const r = size[i] / 2 + 1;
-      placed.push({ x: screen[i * 3] - r, y: screen[i * 3 + 1] - r, w: r * 2, h: r * 2 });
+  setCountries(list: CountryLabel[]): void {
+    this.countries = list;
+  }
+
+  private get(key: string, text: string, tier: LabelTier, rank: string): LabelEl {
+    let l = this.pool.get(key);
+    if (!l) {
+      const el = document.createElement('div');
+      el.className = tier === 'country' ? 'glabel country' : 'glabel';
+      el.textContent = text.length > 28 ? text.slice(0, 26).trimEnd() + '…' : text;
+      el.style.visibility = 'hidden';
+      this.root.appendChild(el);
+      l = { el, w: 0, h: 0, tier: '', shown: false, x: NaN, y: NaN, o: -1, seen: 0 };
+      this.pool.set(key, l);
     }
-    for (const c of this.order) {
-      const l = this.pool.get(c.id);
-      const i = indexOf.get(c.id);
-      if (!l || i === undefined) continue;
+    if (l.tier !== tier || l.el.dataset.rank !== rank) {
+      l.tier = tier;
+      l.el.dataset.tier = tier;
+      l.el.dataset.rank = rank;
+      l.w = 0;
+    }
+    return l;
+  }
+
+  private rankOf(inf: number): string {
+    return inf >= 0.66 ? '1' : inf >= 0.33 ? '2' : '3';
+  }
+
+  layout(fr: LabelFrame): void {
+    const { screen, w, h } = fr;
+    this.frameNo++;
+    const onScreen = (x: number, y: number, f: number) => f > 0.12 && x > -60 && x < w + 60 && y > -30 && y < h + 30;
+
+    // ---- 1. collect candidates (no DOM writes yet) ----
+    type Cand = {
+      l: LabelEl;
+      x: number;
+      y: number;
+      f: number;
+      gap: number;
+      self: Box | null;
+      center: boolean;
+      /** node index (-1 for countries) */
+      i: number;
+      fixed: boolean;
+    };
+    const cands: Cand[] = [];
+    const used = new Set<number>();
+    for (const c of this.fixed) {
+      const i = fr.indexOf.get(c.id);
+      if (i === undefined || used.has(i)) continue;
+      used.add(i);
       const x = screen[i * 3];
       const y = screen[i * 3 + 1];
       const f = screen[i * 3 + 2];
-      let ok = f > 0.12 && x > -50 && x < w + 50 && y > -20 && y < h + 20;
-      if (ok) {
-        const gap = (c.id === selected ? 16 : size[i] / 2 + 5);
-        const tryBoxes: Box[] = [
-          { x: x + gap, y: y - l.h / 2, w: l.w, h: l.h },
-          { x: x - gap - l.w, y: y - l.h / 2, w: l.w, h: l.h },
-          { x: x - l.w / 2, y: y - gap - l.h, w: l.w, h: l.h },
-          { x: x - l.w / 2, y: y + gap, w: l.w, h: l.h },
-        ];
-        const self = { x: x - size[i] / 2 - 1, y: y - size[i] / 2 - 1, w: size[i] + 2, h: size[i] + 2 };
-        const choice = tryBoxes.find(
-          (b) =>
-            b.x >= 2 && b.x + b.w <= w - 2 && b.y >= 2 && b.y + b.h <= h - 2 &&
-            !placed.some((p) => !(p.x === self.x && p.y === self.y) && overlap(b, p)),
-        );
-        if (choice) {
-          placed.push(choice);
-          l.el.style.transform = `translate(${Math.round(choice.x)}px,${Math.round(choice.y)}px)`;
-          l.el.style.opacity = String(Math.min(1, (f - 0.12) * 6));
-        } else ok = false;
+      if (!onScreen(x, y, f)) continue;
+      const e = this.index.byId.get(c.id);
+      const r = fr.radius(i);
+      cands.push({
+        l: this.get(c.id, e?.name ?? c.id, c.tier, this.rankOf(fr.influence[i])),
+        x,
+        y,
+        f,
+        gap: c.id === fr.selected ? 16 : r + 5,
+        self: { x: x - r - 1, y: y - r - 1, w: 2 * r + 2, h: 2 * r + 2 },
+        center: false,
+        i,
+        fixed: true,
+      });
+    }
+    const nFixed = cands.length;
+    if (fr.ambient !== 'off') {
+      const area = Math.max(0.3, Math.min(1, (w * h) / (1440 * 860)));
+      const zf = fr.zf;
+      const cap = Math.round((12 + 44 * Math.pow(zf, 1.2)) * area) * (fr.ambient === 'dim' ? 0.5 : 1);
+      // consider only the top share of entities by influence; the share grows as you zoom in
+      const limit = Math.max(cap * 2, Math.round(fr.rank.length * (0.03 + 0.97 * Math.pow(zf, 1.4))));
+      let taken = 0;
+      const tier: LabelTier = fr.ambient === 'dim' ? 'dim' : 'top';
+      // `limit` counts only entities of shown kinds, so filtering to one kind still labels its top ones
+      let considered = 0;
+      for (let k = 0; k < fr.rank.length && considered < limit && taken < cap * 2; k++) {
+        const i = fr.rank[k];
+        if (screen[i * 3 + 2] === -1) continue; // hidden kind
+        considered++;
+        if (used.has(i)) continue;
+        const x = screen[i * 3];
+        const y = screen[i * 3 + 1];
+        const f = screen[i * 3 + 2];
+        if (!onScreen(x, y, f) || x < 0 || x > w || y < 0 || y > h) continue;
+        used.add(i);
+        const id = this.index.entities[i].id;
+        const r = fr.radius(i);
+        cands.push({
+          l: this.get(id, this.index.entities[i].name, tier, this.rankOf(fr.influence[i])),
+          x,
+          y,
+          f,
+          gap: r + 4,
+          self: { x: x - r - 1, y: y - r - 1, w: 2 * r + 2, h: 2 * r + 2 },
+          center: false,
+          i,
+          fixed: false,
+        });
+        taken++;
       }
-      if (ok !== l.shown) {
-        l.shown = ok;
-        l.el.style.visibility = ok ? 'visible' : 'hidden';
+    }
+    if (this.countries.length && fr.zf > 0.22) {
+      const n = Math.round(this.countries.length * Math.min(1, (fr.zf - 0.22) / 0.5));
+      let taken = 0;
+      for (let k = 0; k < n && taken < 30; k++) {
+        const [name, lat, lon] = this.countries[k];
+        const p = fr.project(lat, lon);
+        if (!(p.f > 0.25) || p.x < 0 || p.x > w || p.y < 0 || p.y > h) continue;
+        cands.push({
+          l: this.get(`c:${name}`, name, 'country', ''),
+          x: p.x,
+          y: p.y,
+          f: p.f,
+          gap: 0,
+          self: null,
+          center: true,
+          i: -1,
+          fixed: false,
+        });
+        taken++;
+      }
+    }
+
+    // ---- 2. measure new labels in one batch (one forced layout at most) ----
+    const fresh = cands.filter((c) => !c.l.w);
+    if (fresh.length) {
+      for (const c of fresh) c.l.el.style.transform = 'translate(-9999px,0)';
+      for (const c of fresh) {
+        c.l.w = c.l.el.offsetWidth;
+        c.l.h = c.l.el.offsetHeight;
+      }
+    }
+
+    // ---- 3. greedy placement ----
+    const placed: Box[] = [...fr.blockers];
+    // reserve the markers of focus labels so labels don't sit on them
+    for (let k = 0; k < nFixed; k++) {
+      const s = cands[k].self;
+      if (s) placed.push(s);
+    }
+    const out = new Set<LabelEl>();
+    for (const c of cands) {
+      const { l, x, y, gap } = c;
+      const tries: Box[] = c.center
+        ? [{ x: x - l.w / 2, y: y - l.h / 2, w: l.w, h: l.h }]
+        : [
+            { x: x + gap, y: y - l.h / 2, w: l.w, h: l.h },
+            { x: x - gap - l.w, y: y - l.h / 2, w: l.w, h: l.h },
+            { x: x - l.w / 2, y: y - gap - l.h, w: l.w, h: l.h },
+            { x: x - l.w / 2, y: y + gap, w: l.w, h: l.h },
+          ];
+      const self = c.self;
+      const free = tries.filter(
+        (b) =>
+          b.x >= 2 &&
+          b.x + b.w <= w - 2 &&
+          b.y >= 2 &&
+          b.y + b.h <= h - 2 &&
+          !placed.some((p) => p !== self && overlap(b, p)),
+      );
+      // never cover another marker; focus labels may fall back to it rather than vanish
+      const choice =
+        free.find((b) => !fr.hitsMarker(b, c.i)) ??
+        (c.fixed || (c.i >= 0 && fr.influence[c.i] >= 0.66) ? free[0] : undefined);
+      if (!choice) continue;
+      placed.push(choice);
+      // ambient labels also reserve their own marker so later labels don't cover it
+      if (self && !placed.includes(self)) placed.push(self);
+      out.add(l);
+      l.seen = this.frameNo;
+      const px = Math.round(choice.x);
+      const py = Math.round(choice.y);
+      if (px !== l.x || py !== l.y) {
+        l.x = px;
+        l.y = py;
+        l.el.style.transform = `translate(${px}px,${py}px)`;
+      }
+      const o = Math.round(Math.min(1, (c.f - 0.12) * 6) * 20) / 20;
+      if (o !== l.o) {
+        l.o = o;
+        l.el.style.opacity = String(o);
+      }
+      if (!l.shown) {
+        l.shown = true;
+        l.el.style.visibility = 'visible';
+      }
+    }
+    // ---- 4. hide the rest; evict long-unused elements ----
+    for (const [key, l] of this.pool) {
+      if (out.has(l)) continue;
+      if (l.shown) {
+        l.shown = false;
+        l.el.style.visibility = 'hidden';
+      }
+      if (this.pool.size > POOL_MAX && this.frameNo - l.seen > 120) {
+        l.el.remove();
+        this.pool.delete(key);
       }
     }
   }

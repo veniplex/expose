@@ -1,9 +1,18 @@
 /** Shared data contract between the data pipeline (scripts/) and the web app (src/). */
 
-export type EntityKind = 'person' | 'company' | 'organization' | 'government' | 'fund';
+export type EntityKind =
+  | 'person'
+  | 'company'
+  | 'fund'
+  | 'party'
+  | 'government'
+  | 'media'
+  | 'organization';
 
 /** The five filter groups shown in the UI. */
 export type LinkCategory = 'ownership' | 'leadership' | 'founder' | 'investment' | 'politics';
+
+export type LinkOrigin = 'wikidata' | 'curated' | 'littlesis' | 'gleif' | 'sec';
 
 export interface Source {
   /** Short human label, e.g. "Wikipedia", "Wikidata", "Reuters". */
@@ -20,6 +29,11 @@ export interface Entity {
   kind: EntityKind;
   /** Alternative or former names, used for search (e.g. "Twitter" for X Corp.). */
   aliases?: string[];
+  /**
+   * Influence score in 0..1 (1 = most influential), computed by the data pipeline from
+   * notability, wealth / size and connectedness. Drives marker size.
+   */
+  influence?: number;
   /** One-line neutral description. */
   description: string;
   /** Where the entity is pinned on the globe (HQ for organisations, main base for people). */
@@ -53,8 +67,10 @@ export interface Link {
   note?: string;
   /** At least one source is mandatory. */
   sources: Source[];
-  /** "wikidata" for auto-imported, "curated" for hand-maintained entries. */
-  origin: 'wikidata' | 'curated';
+  /** True when the relation has ended but the end year is unknown. */
+  ended?: boolean;
+  /** Where the link was imported from; "curated" for hand-maintained entries. */
+  origin: LinkOrigin;
 }
 
 export interface Graph {

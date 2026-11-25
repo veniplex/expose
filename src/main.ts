@@ -14,7 +14,7 @@ import { loadGraph, type GraphIndex } from './data';
 import { Store } from './store';
 import { readTheme } from './theme';
 import { h, isCompact, reducedMotion } from './dom';
-import { KIND_LABEL } from './config';
+import { kindLabel } from './kinds';
 import { plural } from './format';
 import { Globe } from './globe/Globe';
 import { SearchBox } from './ui/SearchBox';
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   boot.progress(0.08);
   let index: GraphIndex;
   try {
-    index = await loadGraph((p) => boot.progress(p * 0.8, 'ESTABLISHING LINK…'));
+    index = await loadGraph((p, label) => boot.progress(p, label));
   } catch (err) {
     boot.done();
     root.replaceChildren(
@@ -47,7 +47,8 @@ async function main(): Promise<void> {
     console.error(err);
     return;
   }
-  boot.progress(0.85, 'DECRYPTING DOSSIERS…');
+  boot.progress(0.9, 'DECRYPTING DOSSIERS…');
+  await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
   mount(index);
   boot.progress(1, 'LINK ESTABLISHED');
   // keep the boot moment brief: at most ~1s total, never less than a beat
@@ -60,23 +61,29 @@ function mount(index: GraphIndex): void {
   const about = new AboutModal();
   const tooltip = new Tooltip();
   const stage = h('div.stage', { id: 'stage' });
-  const search = new SearchBox(index, (id) => store.select(id));
+  const search = new SearchBox(index, store, (id) => {
+    // picking a hidden-type entity in search shows its type again
+    const e = index.byId.get(id);
+    if (e) store.ensureKind(e.kind);
+    store.select(id);
+  });
+  const filters = FilterChips(store, index);
   const header = h(
     'header.top',
     null,
     h('a.brand', { href: '#/', 'aria-label': 'EXPOSE — home' }, h('i'), 'EXPOSE', h('small', null, 'who is connected to whom')),
     search.el,
     StatBar(index),
+    filters.button,
     h('button.chip.about-btn', { type: 'button', onclick: () => about.open(), style: '--c: var(--signal)' }, 'About'),
   );
-  const filters = FilterChips(store);
   const dossier = new Dossier(index, store, { openAbout: () => about.open() });
   const hint = h('div.hint', { 'aria-hidden': 'true' }, 'Drag to rotate · scroll to zoom · click a marker');
 
   let globe: Globe | null = null;
   const zoom = ZoomControls({ zoom: (f) => globe?.zoomBy(f), reset: () => globe?.resetView() });
 
-  root.replaceChildren(stage, header, filters, hint, zoom, dossier.el, tooltip.el, about.el);
+  root.replaceChildren(stage, header, filters.el, hint, zoom, dossier.el, tooltip.el, about.el);
 
   // ---- bottom sheet (compact layout) ----
   const sheet = new BottomSheet(
@@ -99,7 +106,8 @@ function mount(index: GraphIndex): void {
           x + r.left,
           y + r.top,
           e.name,
-          `${KIND_LABEL[e.kind] ?? e.kind}${e.place ? ' · ' + e.place : ''} · ${plural(index.degree.get(id) ?? 0, 'connection')}`,
+          `${kindLabel(e.kind)}${e.place ? ' · ' + e.place : ''} · ${plural(index.degree.get(id) ?? 0, 'connection')}`,
+          e.kind,
         );
       },
       pick: (id) => {
@@ -129,8 +137,15 @@ function mount(index: GraphIndex): void {
   const measure = () => {
     root.style.setProperty('--top-h', `${Math.round(header.getBoundingClientRect().bottom)}px`);
     if (!globe) return;
+    // labels stay clear of the floating UI
+    const sr = stage.getBoundingClientRect();
+    const boxes = [...header.querySelectorAll<HTMLElement>(':scope > *'), filters.el, zoom, dossier.el]
+      .map((el) => el.getBoundingClientRect())
+      .filter((r) => r.width > 0 && r.height > 0)
+      .map((r) => ({ x: r.left - sr.left - 4, y: r.top - sr.top - 4, w: r.width + 8, h: r.height + 8 }));
+    globe.setOccluders(boxes);
     if (isCompact()) {
-      const top = filters.getBoundingClientRect().bottom;
+      const top = header.getBoundingClientRect().bottom;
       globe.setInsets({ top: top + 4, right: 0, bottom: sheet.visibleHeight, left: 0 });
     } else {
       const d = dossier.el.getBoundingClientRect();
@@ -167,6 +182,9 @@ function mount(index: GraphIndex): void {
     screenOf: (id: string) => globe?.screenOf(id) ?? null,
     selected: () => store.state.selected,
     sheet: () => sheet.snap,
+    globe: () => globe?.debug() ?? null,
+    resetPerf: () => globe?.resetPerf(),
+    view: (lat: number, lon: number, mag: number) => globe?.view(lat, lon, mag),
   };
 
   requestAnimationFrame(() => {
