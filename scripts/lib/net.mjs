@@ -35,7 +35,9 @@ async function gate(host, minDelay) {
  * Fetch JSON with retries. Returns null on 404 when `allow404` is set.
  * opts: {method, body, headers, minDelay, retries, allow404, timeoutMs}
  */
+let circuitOpenUntil = 0; // after a request exhausted all retries, further requests fail fast for a while
 export async function httpJSON(url, opts = {}) {
+  if (Date.now() < circuitOpenUntil) throw new NetworkError(`network unavailable (earlier request failed): ${url.slice(0, 100)}`);
   const { method = 'GET', body, headers = {}, minDelay = 250, retries = 6, allow404 = false, timeoutMs = 60000 } = opts;
   const host = new URL(url).host;
   let lastErr;
@@ -72,6 +74,7 @@ export async function httpJSON(url, opts = {}) {
       await sleep(1500 * 2 ** attempt);
     }
   }
+  circuitOpenUntil = Date.now() + 5 * 60 * 1000;
   throw new NetworkError(`Request failed after retries: ${lastErr?.message} (${url.slice(0, 120)})`);
 }
 

@@ -36,7 +36,7 @@
  *           persons        net worth P2218 (USD)
  *           organisations  max(market cap P2226, revenue P2139, total assets P2403) in USD
  *           governments    nominal GDP P2131 (else population P1082)
- *     raw = 0.45 N + 0.30 D + 0.25 W        (without W:  (0.45 N + 0.30 D) / 0.75, i.e. no penalty for unknown size)
+ *     raw = 0.55 N + 0.20 D + 0.25 W        (without W:  (0.55 N + 0.20 D) / 0.75, i.e. no penalty for unknown size)
  *     influence = 0.5 * rank of raw over all entities + 0.5 * rank of raw within its group (person / government /
  *                 party / other organisations), 3 decimals; so every group spreads over the whole 0..1 range while
  *                 the global order still matters.
@@ -571,6 +571,12 @@ async function main() {
     for (const ex of other ? [other] : list) {
       if (other || compatible(ex.since, l.since)) {
         // mirrored / duplicate statement or another source: merge, first (higher precedence) wins
+        if (l.upgrade && ex.category === 'ownership' && ex.origin !== 'curated' && /^(Shareholder|Owner or shareholder)/.test(ex.label)) {
+          // GLEIF's consolidating parent is a controlling holder: more precise than a bare / minority shareholder statement
+          ex.label = 'Parent';
+          ex.inverseLabel = 'Subsidiary of';
+          ex.note = l.note;
+        }
         if (!other) {
           if (ex.since == null) ex.since = l.since;
           if (ex.until == null) ex.until = l.until;
@@ -673,7 +679,7 @@ async function main() {
       const ult = r.kind === 'ultimate';
       const before = links.length;
       addLink(
-        { id: 'g_' + sha([r.parent, r.child, r.kind].join('|')), a: r.parent, b: r.child, category: 'ownership', label: ult ? 'Ultimate parent' : 'Parent', inverseLabel: ult ? 'Ultimate subsidiary of' : 'Subsidiary of', sources: [src], origin: 'gleif' },
+        { id: 'g_' + sha([r.parent, r.child, r.kind].join('|')), a: r.parent, b: r.child, category: 'ownership', label: ult ? 'Ultimate parent' : 'Parent', inverseLabel: ult ? 'Ultimate subsidiary of' : 'Subsidiary of', note: `GLEIF lists ${entById.get(r.parent).name} as the ${ult ? 'ultimate' : 'direct'} accounting-consolidation parent of ${ch.name}.`, sources: [src], origin: 'gleif', upgrade: !ult },
         'own'
       );
       if (links.length > before) gleifAdded++;
@@ -706,6 +712,9 @@ async function main() {
   let lsAdded = 0;
   for (const r of lsSnap.links) {
     if (!entIds.has(r.a) || !entIds.has(r.b) || r.a === r.b) continue;
+    // Skip relationship types too vague to explain a connection, and small one-off donations.
+    if (r.label === 'Business relationship' || r.label === 'Professional associate') continue;
+    if (r.label.startsWith('Donor') && !(r.amount >= 10000)) continue;
     const before = links.length;
     addLink(
       { id: 'l_' + sha([r.a, r.b, r.category, r.label, r.since ?? '', r.lsId].join('|')), a: r.a, b: r.b, category: r.category, label: r.label, inverseLabel: r.inverseLabel, since: r.since ?? null, until: r.until ?? null, ended: r.ended || undefined, note: r.note, sources: r.sources, origin: 'littlesis' },
@@ -789,6 +798,7 @@ async function main() {
   // tidy: optional keys omitted rather than null, sources capped (provenance of every origin kept first)
   const SRC_RANK = (s) => (s.publisher === 'GLEIF' || s.publisher === 'LittleSis' ? 0 : s.publisher === 'Wikidata' ? 1 : s.publisher === 'Wikipedia' ? 2 : 3);
   for (const l of links) {
+    delete l.upgrade;
     for (const k of ['since', 'until', 'note', 'ended']) if (l[k] == null || l[k] === false) delete l[k];
     if (l.until != null && l.since != null && l.until < l.since) {
       l.until = undefined; // inconsistent source dates: keep the fact that it ended, drop the unreliable year
@@ -902,7 +912,7 @@ function computeInfluence(entities, degree, regOf, items) {
     const r = rankNormalise(idxs.map((i) => size[i]));
     idxs.forEach((i, k) => (W[i] = r[k]));
   }
-  const raw = entities.map((e, i) => (W[i] != null ? 0.45 * N[i] + 0.3 * Dg[i] + 0.25 * W[i] : (0.45 * N[i] + 0.3 * Dg[i]) / 0.75));
+  const raw = entities.map((e, i) => (W[i] != null ? 0.55 * N[i] + 0.2 * Dg[i] + 0.25 * W[i] : (0.55 * N[i] + 0.2 * Dg[i]) / 0.75));
   const R = rankNormalise(raw);
   // groups are ranked on their own too, so that people, countries, parties and organisations each get a spread
   const grp = (e) => (e.kind === 'person' ? 'person' : e.kind === 'government' ? 'gov' : e.kind === 'party' ? 'party' : 'org');

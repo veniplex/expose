@@ -136,6 +136,7 @@ export async function fetchEntities(ids, { light = false } = {}) {
     const basic = [
       '?s wikibase:sitelinks ?o. BIND("sl" AS ?k)',
       '?s rdfs:label ?o. FILTER(LANG(?o) = "en") BIND("label" AS ?k)',
+      '?s rdfs:label ?o. FILTER(LANG(?o) = "mul") BIND("labelmul" AS ?k)', // Wikidata's multilingual default label
       ...(light ? [] : [
         '?s schema:description ?o. FILTER(LANG(?o) = "en") BIND("desc" AS ?k)',
         '?s skos:altLabel ?o. FILTER(LANG(?o) = "en") BIND("alias" AS ?k)',
@@ -159,6 +160,7 @@ export async function fetchEntities(ids, { light = false } = {}) {
       switch (r.k) {
         case 'sl': e.sl = r.o; break;
         case 'label': e.label = r.o; break;
+        case 'labelmul': e.labelMul = r.o; break;
         case 'desc': e.description = r.o; break;
         case 'alias': if (e.aliases.length < 12) e.aliases.push(r.o); break;
         case 'wp': e.wikipedia = r.o; break;
@@ -192,6 +194,8 @@ export async function fetchEntities(ids, { light = false } = {}) {
       refMap.set(k, l);
     }
     for (const e of slim.values()) {
+      if (!e.label) e.label = e.labelMul ?? null;
+      delete e.labelMul;
       if (!e.label && !e.sl) continue; // no such item
       for (const pid of METRIC_PROPS) if (e.claims[pid]) e.claims[pid] = e.claims[pid].sort((x, y) => (y.q.when || 0) - (x.q.when || 0)).slice(0, 4);
       for (const [pid, sts] of Object.entries(e.claims)) if (REL[pid]) for (const st of sts) st.refs = refMap.get(`${e.id}|${pid}|${st.v}`) || [];

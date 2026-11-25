@@ -4,7 +4,8 @@
  *
  * Matching (a wrong match on a real person is worse than a missing link):
  *   1. LittleSis search by our display name; candidates must agree on type (person <-> Person, everything else <-> Org)
- *      and have an equal normalised name (or our name equals one of the candidate's registered aliases).
+ *      and have an equal normalised name (organisations: one of our names; persons: or our name equals one of the
+ *      candidate's registered aliases).
  *   2. At most 3 candidates are considered. A candidate is corroborated when
  *        A) its blurb/summary contains a distinctive keyword from our description or from the names of entities we
  *           already connect it to, or
@@ -113,7 +114,7 @@ export function convert(rel, A, B) {
       else if (d1 && d1.length <= 48) [label, fam] = [cap(d1), 'Pos:' + t];
       else if (rel.exec) [label, fam] = ['Executive', 'Pos:executive'];
       else if (rel.emp) [label, fam] = ['Employee', 'Employee'];
-      else [label, fam] = ['Position holder', 'Pos:other'];
+      else return null; // a position without title or role flags says nothing
       const inv = label === 'CEO' ? 'CEO is' : label === 'Chair' ? 'Chaired by' : label === 'Employee' ? 'Employer' : `${label} is`;
       return mk(A, B, 'leadership', label, inv, fam);
     }
@@ -172,7 +173,9 @@ export async function importLittleSis(ents, neighbours, log) {
     const res = await search(e.name);
     if (++searched % 300 === 0) log(`  littlesis search ${searched}/${ents.length}`);
     if (!res) return;
-    const hits = res.filter((c) => (org ? c.ext === 'Org' : c.ext === 'Person') && (names.has(normName(c.name, org)) || c.aliases.some((x) => normName(x, org) === primary)));
+    // organisations: the candidate's own name must equal one of our names (its registered aliases could belong to a subsidiary
+    // or predecessor, e.g. "BASF America"); persons may also match through the candidate's alias list
+    const hits = res.filter((c) => (org ? c.ext === 'Org' : c.ext === 'Person') && (names.has(normName(c.name, org)) || (!org && c.aliases.some((x) => normName(x, org) === primary))));
     if (hits.length && hits.length <= 3) cand.set(e.id, hits);
   });
   log(`  littlesis: ${cand.size} entities with candidate(s)`);
