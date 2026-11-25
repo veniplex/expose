@@ -668,6 +668,9 @@ async function main() {
     curatedAdded++;
   }
 
+  // optional keys are omitted rather than written as null
+  for (const l of links) for (const k of ['since', 'until', 'note']) if (l[k] == null) delete l[k];
+
   // ------------------------------------------------ drop redundant role links
   // "Employee" is implied by any leadership/founder link between the same pair; "Board member" by CEO/Chair/Director.
   {

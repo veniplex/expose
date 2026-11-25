@@ -1,5 +1,5 @@
 [
-  {"title": "Elon Musk", "kind": "person", "aliases": ["Musk"], "place": "Starbase, Texas"},
+  {"title": "Elon Musk", "kind": "person", "aliases": ["Musk"], "place": "Starbase, Texas", "description": "Entrepreneur; CEO of Tesla and SpaceX, owner of X"},
   {"title": "Jeff Bezos", "kind": "person", "lat": 25.787, "lon": -80.158, "place": "Indian Creek Village, Florida", "country": "US"},
   {"title": "Bill Gates", "kind": "person"},
   {"title": "Mark Zuckerberg", "kind": "person"},
@@ -457,8 +457,8 @@
   {"title": "European Commission", "kind": "organization"},
   {"title": "European Central Bank", "kind": "organization"},
   {"title": "Federal Reserve", "kind": "organization", "name": "Federal Reserve", "aliases": ["The Fed", "Federal Reserve System"]},
-  {"title": "OPEC", "kind": "organization"},
-  {"title": "OECD", "kind": "organization"},
+  {"title": "OPEC", "kind": "organization", "name": "OPEC"},
+  {"title": "OECD", "kind": "organization", "name": "OECD"},
   {"title": "Bank for International Settlements", "kind": "organization"},
   {"title": "Bilderberg Meeting", "kind": "organization"},
   {"title": "Trilateral Commission", "kind": "organization"},
