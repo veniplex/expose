@@ -18,6 +18,8 @@ export interface Entity {
   id: string;
   name: string;
   kind: EntityKind;
+  /** Alternative or former names, used for search (e.g. "Twitter" for X Corp.). */
+  aliases?: string[];
   /** One-line neutral description. */
   description: string;
   /** Where the entity is pinned on the globe (HQ for organisations, main base for people). */

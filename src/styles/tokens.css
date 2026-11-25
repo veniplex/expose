@@ -1,0 +1,73 @@
+/*
+ * EXPOSE design tokens — variant "Blackout".
+ * Every colour, font and spacing value used by the UI and the WebGL globe comes from here.
+ * The globe reads the colour tokens at start-up via getComputedStyle (see src/theme.ts).
+ */
+:root {
+  color-scheme: dark;
+
+  /* surfaces */
+  --void: #000;
+  --glow: #08080a;
+  --panel: rgba(8, 8, 9, 0.88);
+  --panel-solid: #08080a;
+  --line: #1c1c1f;
+  --line-2: #34343b;
+  --hover: rgba(255, 255, 255, 0.045);
+
+  /* ink */
+  --ink: #ededf0;
+  --muted: #7c7c85;
+  --faint: #4a4a52;
+  --ice: #c9c9d2;
+  --signal: #ff3b30;
+
+  /* connection categories */
+  --r-own: #ff3b30;
+  --r-lead: #f4f4f6;
+  --r-invest: #7fd1c7;
+  --r-found: #c9a26b;
+  --r-pol: #b58cff;
+
+  /* globe (consumed by WebGL; rgb triplets / hex) */
+  --globe-dot: 235, 235, 245;
+  --globe-atm: 255, 255, 255;
+  --globe-atm-a: 0.07;
+  --globe-disc-a: #0d0d10;
+  --globe-disc-b: #000;
+
+  /* type */
+  --f-display: 'Oxanium', 'Segoe UI', sans-serif;
+  --f-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --f-data: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+
+  /* geometry */
+  --gutter: 16px;
+  --header-h: 66px;
+  --dossier-w: 380px;
+  --clip: 10px;
+  --touch: 32px; /* minimum hit height; raised to 44px on coarse pointers */
+
+  /* motion */
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --t-fast: 140ms;
+  --t-med: 280ms;
+
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+}
+
+@media (pointer: coarse) {
+  :root {
+    --touch: 44px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-med: 0ms;
+  }
+}
