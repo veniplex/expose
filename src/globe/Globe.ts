@@ -117,6 +117,8 @@ export class Globe {
   private invWorld = new Matrix4();
   private perf = { frames: 0, total: 0, max: 0 };
   private occluders: Box[] = [];
+  private cx = 0;
+  private cy = 0;
   private layoutPending = false;
   private lastLayout = 0;
   private lastArcRefresh = 0;
@@ -242,10 +244,10 @@ export class Globe {
     if (x !== undefined && y !== undefined && Math.abs(k - 1) > 1e-4) {
       const p = this.latLonAt(x, y);
       if (p) {
-        const frac = 1 - 1 / k;
+        const t = this.rotationKeeping(p.lat, p.lon, x, y, next);
         this.fly = null;
-        this.nudgeX += (Math.max(-1.3, Math.min(1.3, p.lat)) - (this.rotX + this.nudgeX)) * frac;
-        this.nudgeY += wrapPi(-p.lon - (this.rotY + this.nudgeY)) * frac;
+        this.nudgeX = t.x - this.rotX;
+        this.nudgeY = t.y - this.rotY;
       }
     }
     this.interacted();
@@ -410,6 +412,40 @@ export class Globe {
     this.invalidate();
   }
 
+  /**
+   * Rotation that puts surface point (lat, lon) at screen (x, y) once the zoom is `mag`.
+   * Starts from the linear estimate and refines it against the real perspective projection.
+   */
+  private rotationKeeping(lat: number, lon: number, x: number, y: number, mag: number): { x: number; y: number } {
+    const alt = Math.max(ALT_MIN, this.alt0() / mag);
+    const d = 1 + alt;
+    const f = this.h / (2 * TAN);
+    const pxr = f / alt;
+    const r = this.mag / mag;
+    let rx = lat + (this.rotX - lat) * r;
+    let ry = this.rotY + wrapPi(-lon - this.rotY) * (1 - r);
+    const cl = Math.cos(lat);
+    const px = cl * Math.sin(lon);
+    const py = Math.sin(lat);
+    const pz = cl * Math.cos(lon);
+    for (let it = 0; it < 8; it++) {
+      // world = Rx(rx) · Ry(ry) · p
+      const x1 = px * Math.cos(ry) + pz * Math.sin(ry);
+      const z1 = -px * Math.sin(ry) + pz * Math.cos(ry);
+      const y2 = py * Math.cos(rx) - z1 * Math.sin(rx);
+      const z2 = py * Math.sin(rx) + z1 * Math.cos(rx);
+      if (z2 <= 0.05) break;
+      const sx = this.cx + (x1 / (d - z2)) * f;
+      const sy = this.cy - (y2 / (d - z2)) * f;
+      const ex = x - sx;
+      const ey = y - sy;
+      if (Math.abs(ex) < 0.05 && Math.abs(ey) < 0.05) break;
+      ry += ex / (pxr * Math.max(0.35, Math.cos(rx)));
+      rx = Math.max(-1.3, Math.min(1.3, rx + ey / pxr));
+    }
+    return { x: rx, y: ry };
+  }
+
   /** Surface point (local lat/lon, radians) under a screen position, or null when off the globe. */
   private latLonAt(x: number, y: number): { lat: number; lon: number } | null {
     this.world.rotation.set(this.rotX, this.rotY, 0);
@@ -524,6 +560,8 @@ export class Globe {
       : Math.max(60, Math.min(availW * 0.43, availH * 0.43));
     const cx = i.left + availW / 2;
     const cy = i.top + availH / 2;
+    this.cx = cx;
+    this.cy = cy;
     const alt0 = this.alt0();
     this.magMax = Math.max(2, alt0 / ALT_MIN);
     if (this.magTarget > this.magMax) this.magTarget = this.magMax;

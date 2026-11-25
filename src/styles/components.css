@@ -91,6 +91,7 @@ kbd {
 
 /* ---------- brand ---------- */
 .brand {
+  min-height: var(--touch);
   font-family: var(--f-display);
   font-weight: 700;
   font-size: 22px;
@@ -814,7 +815,11 @@ kbd {
   .sheet-grip {
     display: grid;
     place-items: center;
-    height: 26px;
+    /* 44px hit area, but only 26px of layout: the rest overlaps the header's top padding */
+    height: 44px;
+    margin-bottom: -18px;
+    position: relative;
+    z-index: 2;
     flex: none;
     width: 100%;
     background: none;
@@ -844,6 +849,7 @@ kbd {
   }
   .dossier .d-head .close {
     top: -4px;
+    z-index: 3;
   }
   .dossier.panel {
     border-left: 0;
