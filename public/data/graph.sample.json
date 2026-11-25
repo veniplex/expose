@@ -1,0 +1,489 @@
+{
+ "generatedAt": "2026-11-25T19:04:31.147Z",
+ "entities": [
+  {
+   "id": "Q317521",
+   "name": "Elon Musk",
+   "kind": "person",
+   "description": "Entrepreneur; runs Tesla and SpaceX, founded xAI, owns X.",
+   "lat": 30.27,
+   "lon": -97.74,
+   "place": "Austin, Texas",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Elon_Musk",
+   "wikidata": "https://www.wikidata.org/wiki/Q317521"
+  },
+  {
+   "id": "Q478214",
+   "name": "Tesla, Inc.",
+   "kind": "company",
+   "description": "Electric vehicle and energy company.",
+   "lat": 30.22,
+   "lon": -97.62,
+   "place": "Austin, Texas",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Tesla,_Inc.",
+   "wikidata": "https://www.wikidata.org/wiki/Q478214"
+  },
+  {
+   "id": "Q193701",
+   "name": "SpaceX",
+   "kind": "company",
+   "description": "Spacecraft manufacturer and launch provider.",
+   "lat": 25.99,
+   "lon": -97.18,
+   "place": "Starbase, Texas",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/SpaceX",
+   "wikidata": "https://www.wikidata.org/wiki/Q193701"
+  },
+  {
+   "id": "x-corp",
+   "name": "X Corp.",
+   "kind": "company",
+   "description": "Owner of the social network X, formerly Twitter.",
+   "lat": 37.78,
+   "lon": -122.41,
+   "place": "San Francisco, California",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/X_Corp."
+  },
+  {
+   "id": "xai",
+   "name": "xAI",
+   "kind": "company",
+   "description": "Artificial intelligence company developing the Grok models.",
+   "lat": 37.44,
+   "lon": -122.14,
+   "place": "Palo Alto, California",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/XAI_(company)"
+  },
+  {
+   "id": "Q21708200",
+   "name": "OpenAI",
+   "kind": "organization",
+   "description": "Artificial intelligence research organisation.",
+   "lat": 37.76,
+   "lon": -122.39,
+   "place": "San Francisco, California",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/OpenAI",
+   "wikidata": "https://www.wikidata.org/wiki/Q21708200"
+  },
+  {
+   "id": "neuralink",
+   "name": "Neuralink",
+   "kind": "company",
+   "description": "Brain–computer interface company.",
+   "lat": 37.77,
+   "lon": -122.4,
+   "place": "San Francisco, California",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Neuralink"
+  },
+  {
+   "id": "Q22686",
+   "name": "Donald Trump",
+   "kind": "person",
+   "description": "47th President of the United States.",
+   "lat": 38.9,
+   "lon": -77.04,
+   "place": "Washington, D.C.",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Donald_Trump",
+   "wikidata": "https://www.wikidata.org/wiki/Q22686"
+  },
+  {
+   "id": "qia",
+   "name": "Qatar Investment Authority",
+   "kind": "fund",
+   "description": "Sovereign wealth fund of Qatar.",
+   "lat": 25.29,
+   "lon": 51.53,
+   "place": "Doha",
+   "country": "QA",
+   "wikipedia": "https://en.wikipedia.org/wiki/Qatar_Investment_Authority"
+  },
+  {
+   "id": "kingdom-holding",
+   "name": "Kingdom Holding Company",
+   "kind": "company",
+   "description": "Saudi investment holding company.",
+   "lat": 24.71,
+   "lon": 46.68,
+   "place": "Riyadh",
+   "country": "SA",
+   "wikipedia": "https://en.wikipedia.org/wiki/Kingdom_Holding_Company"
+  },
+  {
+   "id": "Q7407093",
+   "name": "Sam Altman",
+   "kind": "person",
+   "description": "Chief executive of OpenAI.",
+   "lat": 37.77,
+   "lon": -122.42,
+   "place": "San Francisco, California",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Sam_Altman",
+   "wikidata": "https://www.wikidata.org/wiki/Q7407093"
+  },
+  {
+   "id": "Q2283",
+   "name": "Microsoft",
+   "kind": "company",
+   "description": "Software and cloud computing company.",
+   "lat": 47.64,
+   "lon": -122.13,
+   "place": "Redmond, Washington",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Microsoft",
+   "wikidata": "https://www.wikidata.org/wiki/Q2283"
+  },
+  {
+   "id": "Q705525",
+   "name": "Peter Thiel",
+   "kind": "person",
+   "description": "Investor; co-founder of PayPal and Palantir.",
+   "lat": 34.05,
+   "lon": -118.24,
+   "place": "Los Angeles, California",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Peter_Thiel",
+   "wikidata": "https://www.wikidata.org/wiki/Q705525"
+  },
+  {
+   "id": "Q483959",
+   "name": "PayPal",
+   "kind": "company",
+   "description": "Online payments company.",
+   "lat": 37.38,
+   "lon": -121.96,
+   "place": "San Jose, California",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/PayPal",
+   "wikidata": "https://www.wikidata.org/wiki/Q483959"
+  },
+  {
+   "id": "us-gov",
+   "name": "United States federal government",
+   "kind": "government",
+   "description": "National government of the United States.",
+   "lat": 38.89,
+   "lon": -77.01,
+   "place": "Washington, D.C.",
+   "country": "US",
+   "wikipedia": "https://en.wikipedia.org/wiki/Federal_government_of_the_United_States"
+  }
+ ],
+ "links": [
+  {
+   "id": "L1",
+   "a": "Q317521",
+   "b": "Q478214",
+   "category": "leadership",
+   "label": "CEO",
+   "inverseLabel": "CEO is",
+   "since": 2008,
+   "note": "Joined as chairman and lead investor in 2004; CEO since October 2008.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Tesla, Inc.",
+     "url": "https://en.wikipedia.org/wiki/Tesla,_Inc."
+    },
+    {
+     "publisher": "SEC",
+     "title": "Tesla filings",
+     "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK=1318605"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L2",
+   "a": "Q317521",
+   "b": "Q193701",
+   "category": "founder",
+   "label": "Founder",
+   "inverseLabel": "Founded by",
+   "since": 2002,
+   "note": "Founded the company in 2002 and controls the majority of voting shares.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "SpaceX",
+     "url": "https://en.wikipedia.org/wiki/SpaceX"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L3",
+   "a": "Q317521",
+   "b": "x-corp",
+   "category": "ownership",
+   "label": "Owner",
+   "inverseLabel": "Owned by",
+   "since": 2022,
+   "note": "Bought Twitter for about $44 billion in October 2022 and renamed it X.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Acquisition of Twitter by Elon Musk",
+     "url": "https://en.wikipedia.org/wiki/Acquisition_of_Twitter_by_Elon_Musk"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L4",
+   "a": "Q317521",
+   "b": "xai",
+   "category": "founder",
+   "label": "Founder",
+   "inverseLabel": "Founded by",
+   "since": 2023,
+   "note": "Founded the AI company in 2023.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "XAI (company)",
+     "url": "https://en.wikipedia.org/wiki/XAI_(company)"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L5",
+   "a": "Q317521",
+   "b": "Q21708200",
+   "category": "founder",
+   "label": "Co-founder",
+   "inverseLabel": "Co-founded by",
+   "since": 2015,
+   "until": 2018,
+   "note": "Co-founded and co-chaired OpenAI in 2015, left the board in 2018.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "OpenAI",
+     "url": "https://en.wikipedia.org/wiki/OpenAI"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L6",
+   "a": "Q317521",
+   "b": "neuralink",
+   "category": "founder",
+   "label": "Co-founder",
+   "inverseLabel": "Co-founded by",
+   "since": 2016,
+   "note": "Co-founded the brain–computer interface company in 2016.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Neuralink",
+     "url": "https://en.wikipedia.org/wiki/Neuralink"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L7",
+   "a": "kingdom-holding",
+   "b": "x-corp",
+   "category": "investment",
+   "label": "Investor",
+   "inverseLabel": "Investor is",
+   "since": 2022,
+   "note": "Rolled its Twitter stake into the Musk-led buyout.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Kingdom Holding Company",
+     "url": "https://en.wikipedia.org/wiki/Kingdom_Holding_Company"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L8",
+   "a": "qia",
+   "b": "x-corp",
+   "category": "investment",
+   "label": "Investor",
+   "inverseLabel": "Investor is",
+   "since": 2022,
+   "note": "Contributed equity financing to the Twitter acquisition.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Acquisition of Twitter by Elon Musk",
+     "url": "https://en.wikipedia.org/wiki/Acquisition_of_Twitter_by_Elon_Musk"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L9",
+   "a": "Q317521",
+   "b": "Q22686",
+   "category": "politics",
+   "label": "Campaign donor · adviser",
+   "inverseLabel": "Advised by",
+   "since": 2024,
+   "until": 2025,
+   "note": "Major donor in the 2024 campaign, then led the Department of Government Efficiency initiative.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Department of Government Efficiency",
+     "url": "https://en.wikipedia.org/wiki/Department_of_Government_Efficiency"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L10",
+   "a": "Q22686",
+   "b": "us-gov",
+   "category": "politics",
+   "label": "President",
+   "inverseLabel": "Headed by",
+   "since": 2025,
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Donald Trump",
+     "url": "https://en.wikipedia.org/wiki/Donald_Trump"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L11",
+   "a": "Q7407093",
+   "b": "Q21708200",
+   "category": "leadership",
+   "label": "CEO",
+   "inverseLabel": "CEO is",
+   "since": 2019,
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Sam Altman",
+     "url": "https://en.wikipedia.org/wiki/Sam_Altman"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L12",
+   "a": "Q7407093",
+   "b": "Q21708200",
+   "category": "founder",
+   "label": "Co-founder",
+   "inverseLabel": "Co-founded by",
+   "since": 2015,
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "OpenAI",
+     "url": "https://en.wikipedia.org/wiki/OpenAI"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L13",
+   "a": "Q2283",
+   "b": "Q21708200",
+   "category": "investment",
+   "label": "Investor",
+   "inverseLabel": "Investor is",
+   "since": 2019,
+   "note": "Invested billions of dollars in OpenAI from 2019 onward.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "OpenAI",
+     "url": "https://en.wikipedia.org/wiki/OpenAI"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L14",
+   "a": "Q705525",
+   "b": "Q483959",
+   "category": "founder",
+   "label": "Co-founder",
+   "inverseLabel": "Co-founded by",
+   "since": 1998,
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "PayPal",
+     "url": "https://en.wikipedia.org/wiki/PayPal"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L15",
+   "a": "Q317521",
+   "b": "Q483959",
+   "category": "founder",
+   "label": "Co-founder (via X.com)",
+   "inverseLabel": "Co-founded by",
+   "since": 1999,
+   "until": 2002,
+   "note": "X.com, founded by Musk, merged with Confinity to form PayPal.",
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "PayPal",
+     "url": "https://en.wikipedia.org/wiki/PayPal"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L16",
+   "a": "Q705525",
+   "b": "Q21708200",
+   "category": "investment",
+   "label": "Early donor",
+   "inverseLabel": "Funded by",
+   "since": 2015,
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "OpenAI",
+     "url": "https://en.wikipedia.org/wiki/OpenAI"
+    }
+   ],
+   "origin": "curated"
+  },
+  {
+   "id": "L17",
+   "a": "Q705525",
+   "b": "Q22686",
+   "category": "politics",
+   "label": "Campaign donor",
+   "inverseLabel": "Supported by",
+   "since": 2016,
+   "sources": [
+    {
+     "publisher": "Wikipedia",
+     "title": "Peter Thiel",
+     "url": "https://en.wikipedia.org/wiki/Peter_Thiel"
+    }
+   ],
+   "origin": "curated"
+  }
+ ]
+}
