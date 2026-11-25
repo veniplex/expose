@@ -1,6 +1,8 @@
 import type { Entity, Link, Source } from '../types';
 import type { Row } from '../data';
-import { CATEGORY_BY_ID, KIND_LABEL } from '../config';
+import { CATEGORY_BY_ID, ORIGIN_LABEL } from '../config';
+import { kindLabel } from '../kinds';
+import { KindIcon } from './KindIcon';
 import { h, icon, ICONS } from '../dom';
 import { years, isPast } from '../format';
 import { relationFor } from '../data';
@@ -21,7 +23,9 @@ export interface ConnectionItemProps {
 export function rowYears(links: Link[]): string {
   const since = links.map((l) => l.since).filter((y): y is number => typeof y === 'number');
   const ongoing = links.some((l) => !isPast(l));
-  const until = ongoing ? undefined : Math.max(...links.map((l) => l.until as number));
+  const ends = links.map((l) => l.until).filter((y): y is number => typeof y === 'number');
+  // all ended; show the latest known end year (none known: "ended" is shown by the row tag)
+  const until = ongoing || !ends.length ? undefined : Math.max(...ends);
   return years({ since: since.length ? Math.min(...since) : undefined, until });
 }
 
@@ -55,7 +59,7 @@ export function ConnectionItem(p: ConnectionItemProps): HTMLDivElement {
       'aria-controls': bodyId,
       onclick: () => p.onToggle(row),
     },
-    h('span.row', null, h('span.name', null, cp.name), yr ? h('span.yr', null, yr) : null),
+    h('span.row', null, h('span.name', null, KindIcon(cp.kind, 10), cp.name), yr ? h('span.yr', null, yr) : null),
     h('span.rel', null, labels.join(' · '), past ? h('span.tag', null, 'past') : null),
   );
 
@@ -69,7 +73,9 @@ export function ConnectionItem(p: ConnectionItemProps): HTMLDivElement {
       l.note ? h('p.why', null, l.note) : null,
     );
   });
-  const viaWikidata = links.every((l) => l.origin === 'wikidata');
+  // credit imported origins ("via Wikidata, LittleSis"); hand-curated rows need no credit line
+  const origins = [...new Set(links.map((l) => l.origin).filter((o) => o && o !== 'curated'))];
+  const via = origins.length ? ` · via ${origins.map((o) => ORIGIN_LABEL[o] ?? o).join(', ')}` : '';
   const body = h(
     'div.conn-body',
     { id: bodyId, hidden: !p.expanded },
@@ -77,7 +83,7 @@ export function ConnectionItem(p: ConnectionItemProps): HTMLDivElement {
     h(
       'p.cp',
       null,
-      `${KIND_LABEL[cp.kind] ?? cp.kind}${cp.place ? ' · ' + cp.place : ''} · ${CATEGORY_BY_ID[row.category]?.label ?? row.category}${viaWikidata ? ' · via Wikidata' : ''}`,
+      `${kindLabel(cp.kind)}${cp.place ? ' · ' + cp.place : ''} · ${CATEGORY_BY_ID[row.category]?.label ?? row.category}${via}`,
     ),
     h(
       'ol.src-list',

@@ -48,6 +48,7 @@ export async function httpJSON(url, opts = {}) {
         headers: { 'User-Agent': UA, Accept: 'application/json', ...headers },
         signal: AbortSignal.timeout(timeoutMs),
       });
+      if (process.env.EXPOSE_DEBUG && res.status !== 200) console.warn(`DEBUG ${res.status} ${url.slice(0, 100)} retry-after=${res.headers.get('retry-after')}`);
       if (res.status === 404 && allow404) return null;
       if (res.status === 429 || res.status >= 500) {
         const ra = Number(res.headers.get('retry-after'));
@@ -67,6 +68,7 @@ export async function httpJSON(url, opts = {}) {
     } catch (e) {
       if (e instanceof NetworkError) throw e;
       lastErr = e;
+      if (process.env.EXPOSE_DEBUG) console.warn(`DEBUG error ${e.message} ${url.slice(0, 100)}`);
       await sleep(1500 * 2 ** attempt);
     }
   }

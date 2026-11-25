@@ -7,8 +7,8 @@ export function ZoomControls(p: { zoom(f: number): void; reset(): void }): HTMLD
   return h(
     'div.zoom-ctrl',
     { role: 'group', 'aria-label': 'Globe view' },
-    btn('Zoom in', ICONS.plus, () => p.zoom(1.5)),
-    btn('Zoom out', ICONS.minus, () => p.zoom(1 / 1.5)),
+    btn('Zoom in', ICONS.plus, () => p.zoom(2)),
+    btn('Zoom out', ICONS.minus, () => p.zoom(1 / 2)),
     btn('Reset view', ICONS.reset, p.reset),
   );
 }

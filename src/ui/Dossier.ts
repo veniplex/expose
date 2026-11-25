@@ -1,7 +1,10 @@
 import type { Entity } from '../types';
 import type { GraphIndex } from '../data';
 import type { State, Store } from '../store';
-import { CATEGORIES, KIND_LABEL, REPO_URL } from '../config';
+import { CATEGORIES, REPO_URL } from '../config';
+import { ALL_KINDS, kindLabel } from '../kinds';
+import { entityVisible } from '../filters';
+import { KindIcon } from './KindIcon';
 import { h, icon, ICONS } from '../dom';
 import { formatDate, isPast, plural } from '../format';
 import { other, rowsFor, type Row } from '../data';
@@ -31,7 +34,8 @@ export class Dossier {
     this.el = h('aside.dossier.panel.bracket', { 'aria-label': 'Dossier', 'aria-live': 'polite' }, this.grip, this.view);
     store.subscribe((s, ch) => {
       if (ch.has('selected')) this.render(s);
-      else if (ch.has('categories') || ch.has('includePast')) this.renderList(s);
+      else if (ch.has('kinds') && !s.selected) this.renderIntro();
+      else if (ch.has('categories') || ch.has('includePast') || ch.has('kinds')) this.renderList(s);
       else if (ch.has('expanded')) this.syncExpanded(s);
     });
     this.render(store.state);
@@ -59,14 +63,15 @@ export class Dossier {
       'div.d-foot',
       null,
       h('span', null, `Data generated ${formatDate(this.index.graph.generatedAt)}${this.index.isSample ? ' · SAMPLE DATA' : ''}`),
-      h('span', null, 'Sources: Wikidata, Wikipedia and cited publications'),
+      h('span', null, 'Sources: Wikidata, Wikipedia, GLEIF, LittleSis and cited publications'),
       h('button.text-btn', { type: 'button', onclick: () => this.cb.openAbout() }, 'About & method'),
       h('a.text-btn', { href: issue.toString(), target: '_blank', rel: 'noopener noreferrer' }, 'Report an error'),
     );
   }
 
   private renderIntro(): void {
-    const top = this.index.ranked.slice(0, 10);
+    const s = this.store.state;
+    const top = this.index.ranked.filter((e) => s.kinds.has(e.kind)).slice(0, 10);
     const head = h(
       'div.d-head.intro',
       null,
@@ -75,7 +80,7 @@ export class Dossier {
       h(
         'p',
         null,
-        'EXPOSE maps documented relationships between powerful people, companies, funds and governments. Every connection links to the public sources it rests on.',
+        'EXPOSE maps documented relationships between powerful people, companies, funds, parties, governments and media. Every connection links to the public sources it rests on.',
       ),
     );
     const list = h(
@@ -88,7 +93,7 @@ export class Dossier {
         h('li', null, h('b', null, '02'), h('span', null, 'Or pick a marker on the globe.')),
         h('li', null, h('b', null, '03'), h('span', null, 'Open a connection to read why it exists, check its sources, then hop on.')),
       ),
-      h('div.eyebrow.section-h', null, 'Most connected'),
+      h('div.eyebrow.section-h', null, 'Most influential'),
       h(
         'div',
         { role: 'list' },
@@ -107,12 +112,13 @@ export class Dossier {
               'span',
               null,
               h('span.name', null, e.name),
-              h('span.sub', null, `${KIND_LABEL[e.kind] ?? e.kind}${e.place ? ' · ' + e.place : ''}`),
+              h('span.sub', null, KindIcon(e.kind, 9), `${kindLabel(e.kind)}${e.place ? ' · ' + e.place : ''}`),
             ),
             h('span.deg', { 'aria-label': `${this.index.degree.get(e.id)} connections` }, String(this.index.degree.get(e.id) ?? 0)),
           ),
         ),
       ),
+      top.length ? null : h('p.notice', null, 'All entity types are hidden by the filters.'),
       h(
         'p.notice',
         null,
@@ -144,7 +150,7 @@ export class Dossier {
     const head = h(
       'div.d-head',
       null,
-      h('span.eyebrow', null, `${KIND_LABEL[e.kind] ?? e.kind}${e.place ? ' · ' + e.place : ''}`),
+      h('span.eyebrow.kind-eyebrow', null, KindIcon(e.kind, 10), `${kindLabel(e.kind)}${e.place ? ' · ' + e.place : ''}`),
       h(
         'button.icon-btn.bare.close',
         { type: 'button', 'aria-label': 'Close dossier', title: 'Close (Esc)', onclick: () => this.store.select(null) },
@@ -154,6 +160,7 @@ export class Dossier {
       h(
         'div.meta',
         null,
+        this.influenceMeta(e),
         h('span', null, h('b', null, String(this.index.degree.get(e.id) ?? 0)), this.index.degree.get(e.id) === 1 ? ' connection' : ' connections'),
         countries.size ? h('span', null, h('b', null, String(countries.size)), countries.size === 1 ? ' country' : ' countries') : null,
         e.wikipedia ? h('a', { href: e.wikipedia, target: '_blank', rel: 'noopener noreferrer' }, 'Wikipedia ↗') : null,
@@ -163,6 +170,24 @@ export class Dossier {
     this.listEl = h('div.d-list', { role: 'list', 'aria-label': `Connections of ${e.name}` });
     this.view.replaceChildren(head, this.listEl, this.footer(e));
     this.renderList(s);
+  }
+
+  /** "Influence 87/100" with a small bar; estimated from connections when the data has no score. */
+  private influenceMeta(e: Entity): HTMLElement {
+    const v = Math.round((this.index.influence.get(e.id) ?? 0) * 100);
+    const est = typeof e.influence !== 'number';
+    const why = est
+      ? 'Estimated from the number of connections (no influence score in the data yet). An approximation, not a judgement.'
+      : 'Computed from notability, wealth / size and connectedness. An approximation, not a judgement.';
+    return h(
+      'span.infl',
+      { title: `Influence ${v}/100 — ${why}`, 'aria-label': `Influence ${v} of 100${est ? ', estimated' : ''}` },
+      'Influence ',
+      h('b', null, String(v)),
+      '/100',
+      h('i.infl-bar', { 'aria-hidden': 'true', style: `--v: ${v / 100}` }),
+      est ? h('span.est', null, 'est.') : null,
+    );
   }
 
   /** (Re)build the grouped connection list under the active filters. */
@@ -177,12 +202,13 @@ export class Dossier {
       (x, y) =>
         Number(ended(x)) - Number(ended(y)) ||
         latest(y) - latest(x) ||
-        (this.index.degree.get(y.counterpart) ?? 0) - (this.index.degree.get(x.counterpart) ?? 0) ||
+        (this.index.influence.get(y.counterpart) ?? 0) - (this.index.influence.get(x.counterpart) ?? 0) ||
         x.counterpart.localeCompare(y.counterpart),
     );
     const nodes: HTMLElement[] = [];
     let hiddenPast = 0;
     let hiddenCat = 0;
+    let hiddenKind = 0;
     for (const c of CATEGORIES) {
       const inCat = rows.filter((r) => r.category === c.id);
       if (!inCat.length) continue;
@@ -192,6 +218,10 @@ export class Dossier {
       }
       const shown: Row[] = [];
       for (const r of inCat) {
+        if (!entityVisible(this.index, r.counterpart, s)) {
+          hiddenKind++;
+          continue;
+        }
         const links = s.includePast ? r.links : r.links.filter((l) => !isPast(l));
         if (links.length) shown.push({ ...r, links });
         else hiddenPast++;
@@ -226,7 +256,16 @@ export class Dossier {
           h('button.text-btn', { type: 'button', onclick: () => this.store.set({ includePast: true }) }, 'Show them'),
         ),
       );
-    if (hiddenCat) nodes.push(h('p.notice', null, `${plural(hiddenCat, 'connection')} hidden by type filters.`));
+    if (hiddenCat) nodes.push(h('p.notice', null, `${plural(hiddenCat, 'connection')} hidden by connection-type filters.`));
+    if (hiddenKind)
+      nodes.push(
+        h(
+          'p.notice',
+          null,
+          `${plural(hiddenKind, 'connection')} to hidden entity types. `,
+          h('button.text-btn', { type: 'button', onclick: () => this.store.set({ kinds: new Set(ALL_KINDS) }) }, 'Show all types'),
+        ),
+      );
     this.listEl.replaceChildren(...nodes);
   }
 

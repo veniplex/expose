@@ -1,11 +1,12 @@
 import { h } from '../dom';
+import { KindIcon } from './KindIcon';
 
 /** Pointer-following tooltip (mouse only; touch users get the same info by tapping = selecting). */
 export class Tooltip {
   readonly el = h('div.tooltip.panel', { role: 'tooltip', 'aria-hidden': 'true' });
 
-  show(x: number, y: number, title: string, sub: string): void {
-    this.el.replaceChildren(h('div.name', null, title), h('div.sub', null, sub));
+  show(x: number, y: number, title: string, sub: string, kind?: string): void {
+    this.el.replaceChildren(h('div.name', null, kind ? KindIcon(kind, 11) : null, title), h('div.sub', null, sub));
     this.el.classList.add('on');
     const r = this.el.getBoundingClientRect();
     let left = x + 16;

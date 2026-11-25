@@ -40,6 +40,8 @@ export interface LabelFrame {
   /** show general (non-focus) labels, and how prominently */
   ambient: 'full' | 'dim' | 'off';
   blockers: Box[];
+  /** true when a visible marker other than node `self` intersects the box */
+  hitsMarker(b: Box, self: number): boolean;
   /** project lat/lon to CSS px; `f` = facing (≤ 0: behind) */
   project(lat: number, lon: number): { x: number; y: number; f: number };
 }
@@ -116,7 +118,18 @@ export class Labels {
     const onScreen = (x: number, y: number, f: number) => f > 0.12 && x > -60 && x < w + 60 && y > -30 && y < h + 30;
 
     // ---- 1. collect candidates (no DOM writes yet) ----
-    type Cand = { l: LabelEl; x: number; y: number; f: number; gap: number; self: Box | null; center: boolean };
+    type Cand = {
+      l: LabelEl;
+      x: number;
+      y: number;
+      f: number;
+      gap: number;
+      self: Box | null;
+      center: boolean;
+      /** node index (-1 for countries) */
+      i: number;
+      fixed: boolean;
+    };
     const cands: Cand[] = [];
     const used = new Set<number>();
     for (const c of this.fixed) {
@@ -137,13 +150,15 @@ export class Labels {
         gap: c.id === fr.selected ? 16 : r + 5,
         self: { x: x - r - 1, y: y - r - 1, w: 2 * r + 2, h: 2 * r + 2 },
         center: false,
+        i,
+        fixed: true,
       });
     }
     const nFixed = cands.length;
     if (fr.ambient !== 'off') {
       const area = Math.max(0.3, Math.min(1, (w * h) / (1440 * 860)));
       const zf = fr.zf;
-      const cap = Math.round((7 + 48 * Math.pow(zf, 1.2)) * area) * (fr.ambient === 'dim' ? 0.5 : 1);
+      const cap = Math.round((12 + 44 * Math.pow(zf, 1.2)) * area) * (fr.ambient === 'dim' ? 0.5 : 1);
       // consider only the top share of entities by influence; the share grows as you zoom in
       const limit = Math.max(cap * 2, Math.round(fr.rank.length * (0.03 + 0.97 * Math.pow(zf, 1.4))));
       let taken = 0;
@@ -166,6 +181,8 @@ export class Labels {
           gap: r + 4,
           self: { x: x - r - 1, y: y - r - 1, w: 2 * r + 2, h: 2 * r + 2 },
           center: false,
+          i,
+          fixed: false,
         });
         taken++;
       }
@@ -177,7 +194,17 @@ export class Labels {
         const [name, lat, lon] = this.countries[k];
         const p = fr.project(lat, lon);
         if (!(p.f > 0.25) || p.x < 0 || p.x > w || p.y < 0 || p.y > h) continue;
-        cands.push({ l: this.get(`c:${name}`, name, 'country', ''), x: p.x, y: p.y, f: p.f, gap: 0, self: null, center: true });
+        cands.push({
+          l: this.get(`c:${name}`, name, 'country', ''),
+          x: p.x,
+          y: p.y,
+          f: p.f,
+          gap: 0,
+          self: null,
+          center: true,
+          i: -1,
+          fixed: false,
+        });
         taken++;
       }
     }
@@ -211,7 +238,7 @@ export class Labels {
             { x: x - l.w / 2, y: y + gap, w: l.w, h: l.h },
           ];
       const self = c.self;
-      const choice = tries.find(
+      const free = tries.filter(
         (b) =>
           b.x >= 2 &&
           b.x + b.w <= w - 2 &&
@@ -219,6 +246,10 @@ export class Labels {
           b.y + b.h <= h - 2 &&
           !placed.some((p) => p !== self && overlap(b, p)),
       );
+      // never cover another marker; focus labels may fall back to it rather than vanish
+      const choice =
+        free.find((b) => !fr.hitsMarker(b, c.i)) ??
+        (c.fixed || (c.i >= 0 && fr.influence[c.i] >= 0.66) ? free[0] : undefined);
       if (!choice) continue;
       placed.push(choice);
       // ambient labels also reserve their own marker so later labels don't cover it

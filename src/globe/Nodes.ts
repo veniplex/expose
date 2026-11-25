@@ -174,7 +174,9 @@ export class Nodes {
     this.layoutPxPerDeg = pxPerDeg;
     this.layoutZf = zf;
     const overlap = 0.42 + 0.58 * Math.min(1, zf / 0.55);
-    const gap = 0.5 + 5 * Math.min(1, zf / 0.7);
+    // extra breathing room between markers grows with zoom: ~26px centre spacing when closest
+    const t = Math.max(0, Math.min(1, (zf - 0.25) / 0.7));
+    const gap = 0.5 + 16 * t * t * (3 - 2 * t);
     for (let i = 0; i < this.rad.length; i++) {
       // visible glyph radius ≈ 0.36 × box
       this.rad[i] = (this.size[i] * this.scale * 0.36 * overlap + gap / 2) / pxPerDeg;

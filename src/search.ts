@@ -20,9 +20,15 @@ function subsequence(q: string, s: string): boolean {
 
 /**
  * Rank entities for a query: exact > prefix > token-prefix > all-tokens > substring > fuzzy,
- * ties broken by number of connections.
+ * ties broken by influence. `demote(e)` true pushes an entity down (e.g. its type is hidden),
+ * but it still matches.
  */
-export function search(index: GraphIndex, query: string, limit = 8): Entity[] {
+export function search(
+  index: GraphIndex,
+  query: string,
+  limit = 8,
+  demote: (e: Entity) => boolean = () => false,
+): Entity[] {
   const q = normalize(query);
   if (!q) return [];
   const qTokens = q.split(' ');
@@ -44,7 +50,7 @@ export function search(index: GraphIndex, query: string, limit = 8): Entity[] {
       const as = score(normalize(a));
       if (as >= 40) s = Math.max(s, as - 5);
     }
-    if (s) scored.push({ e, s: s + Math.min(9, (index.degree.get(e.id) ?? 0) / 4) });
+    if (s) scored.push({ e, s: s + 9 * (index.influence.get(e.id) ?? 0) - (demote(e) ? 30 : 0) });
   });
   scored.sort((a, b) => b.s - a.s || a.e.name.localeCompare(b.e.name));
   return scored.slice(0, limit).map((x) => x.e);

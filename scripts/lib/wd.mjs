@@ -228,7 +228,7 @@ export async function discover(log) {
   };
   await run('countries', `SELECT ?id ?s WHERE { ?id wdt:P31 wd:Q3624078. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s } ORDER BY DESC(?s)`, 260);
   // current heads of state / government (no end-date qualifier)
-  await run('leaders', `SELECT DISTINCT ?c ?id ?s WHERE { ?c wdt:P31 wd:Q3624078. ${NOT_DISSOLVED('?c')} { ?c p:P35 ?st. ?st ps:P35 ?id. FILTER NOT EXISTS { ?st pq:P582 [] } } UNION { ?c p:P6 ?st. ?st ps:P6 ?id. FILTER NOT EXISTS { ?st pq:P582 [] } } ?id wikibase:sitelinks ?s }`, 800);
+  await run('leaders', `SELECT DISTINCT ?c ?id WHERE { ?c wdt:P31 wd:Q3624078. ${NOT_DISSOLVED('?c')} { ?c p:P35 ?st. ?st ps:P35 ?id. FILTER NOT EXISTS { ?st pq:P582 [] } } UNION { ?c p:P6 ?st. ?st ps:P6 ?id. FILTER NOT EXISTS { ?st pq:P582 [] } } }`, 800);
   await run('billionaires', `SELECT ?id (MAX(?a) AS ?nw) ?s WHERE { ?id wdt:P31 wd:Q5; p:P2218/psv:P2218 ?v. ?v wikibase:quantityAmount ?a; wikibase:quantityUnit wd:Q4917. FILTER NOT EXISTS { ?id wdt:P570 [] } ?id wikibase:sitelinks ?s. FILTER(?s >= 10) } GROUP BY ?id ?s ORDER BY DESC(?nw) LIMIT 450`, 330);
   for (const p of ['P2139', 'P2403', 'P2226']) {
     await run('co_' + p, `SELECT ?id ?s WHERE { ?id wdt:${p} ?x. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s. FILTER(?s >= 35) } ORDER BY DESC(?s) LIMIT 600`, 600);
@@ -237,7 +237,7 @@ export async function discover(log) {
   await run('parties_gov', `SELECT DISTINCT ?id ?s WHERE { ?c wdt:P31 wd:Q3624078. ${NOT_DISSOLVED('?c')} ?c p:P6 ?st. ?st ps:P6 ?h. FILTER NOT EXISTS { ?st pq:P582 [] } ?h wdt:P102 ?id. ?id wdt:P31 wd:Q7278. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s }`, 200);
   await run('parties', `SELECT ?id ?s WHERE { ?id wdt:P31 wd:Q7278. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s. FILTER(?s >= 25) } ORDER BY DESC(?s) LIMIT 250`, 250);
   await run('media', `SELECT ?id ?s WHERE { VALUES ?cls { ${values(CLASS_FLAGS.media.filter((c) => c !== 'Q14350'))} } ?id wdt:P31 ?cls. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s. FILTER(?s >= 30) } ORDER BY DESC(?s) LIMIT 300`, 130);
-  await run('funds', `SELECT ?id ?s WHERE { VALUES ?cls { ${values(CLASS_FLAGS.fund)} } ?id wdt:P31 ?cls. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s. FILTER(?s >= 15) } ORDER BY DESC(?s) LIMIT 300`, 90);
+  await run('funds', `SELECT ?id ?s WHERE { VALUES ?cls { ${values(CLASS_FLAGS.fund)} } ?id wdt:P31 ?cls. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s. FILTER(?s >= 8) } ORDER BY DESC(?s) LIMIT 300`, 90);
   await run('orgs', `SELECT ?id ?s WHERE { VALUES ?cls { wd:Q66344 wd:Q245065 wd:Q484652 wd:Q155271 } ?id wdt:P31 ?cls. ${NOT_DISSOLVED('?id')} ?id wikibase:sitelinks ?s. FILTER(?s >= 45) } ORDER BY DESC(?s) LIMIT 300`, 110);
   return sets;
 }
