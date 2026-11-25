@@ -485,9 +485,11 @@ async function main() {
       country: s.country || g.country,
       wikipedia: wpUrl(e.data.wikipedia || e.wpTitle),
       wikidata: `https://www.wikidata.org/wiki/${e.qid}`,
+      aliases: buildAliases(s.name || e.data.label || e.wpTitle, [...(s.aliases || []), ...(e.data.aliases || []), e.data.label, e.wpTitle]),
       image: typeof img === 'string' ? `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(img.replace(/ /g, '_'))}?width=160` : undefined,
     };
     if (!ent.country) delete ent.country;
+    if (!ent.aliases.length) delete ent.aliases;
     if (!ent.image) delete ent.image;
     entities.push(ent);
   }
@@ -513,7 +515,7 @@ async function main() {
         if (ex.since == null) ex.since = l.since;
         if (ex.until == null) ex.until = l.until;
         if (!ex.note && l.note) ex.note = l.note;
-        if (ex.label === 'Parent' && l.label === 'Owner') {
+        if (ex.label === 'Parent' && l.label !== 'Parent') {
           ex.label = l.label;
           ex.inverseLabel = l.inverseLabel;
         }
@@ -554,13 +556,19 @@ async function main() {
           endedUnknown++;
           continue;
         }
-        // Minority stakes / fund holdings are shown as "Shareholder" (investment), not as outright ownership.
+        // Ownership wording follows the recorded proportion (P1107). Stakes held by funds are investments.
         if (rel.pct) {
           let pctv = typeof st.q.pct === 'number' && st.q.pct > 0 ? st.q.pct : null;
           if (pctv != null && pctv > 1 && pctv <= 100) pctv /= 100;
-          const ownerKind = entById.get(a).kind;
-          const minor = pctv != null ? pctv < 0.5 : ownerKind === 'fund' || ownerKind === 'person';
-          if (minor) [cat, label, inv, fam] = ['investment', 'Shareholder', 'Has shareholder', 'sh'];
+          const isFund = entById.get(a).kind === 'fund';
+          const fmt = (v) => `${Math.round(v * 1000) / 10}%`;
+          if (pctv != null && pctv >= 0.999) [label, inv] = ['Owner', 'Owned by'];
+          else if (pctv != null && pctv >= 0.5) [label, inv] = ['Majority owner', 'Majority-owned by'];
+          else if (pctv != null) [label, inv] = [`Shareholder (${fmt(pctv)})`, `Has shareholder (${fmt(pctv)})`];
+          else if (isFund) [label, inv] = ['Shareholder', 'Has shareholder'];
+          else [label, inv] = ['Owner or shareholder', 'Owned (in part) by'];
+          cat = isFund ? 'investment' : 'ownership';
+          fam = isFund ? 'sh' : 'own';
         }
         const since = st.q.start ?? (pid === 'P112' ? statements(e.data, 'P571')[0]?.v?.y ?? null : null);
         let until = null;
@@ -633,7 +641,8 @@ async function main() {
     // A curated founder/ownership/investment link supersedes automatic links with the same endpoints and category
     // (their sources are kept, curated labels and dates win).
     if (ABSORB.has(cl.category)) {
-      for (const w of links.filter((x) => x.origin === 'wikidata' && x.a === cl.a && x.b === cl.b && x.category === cl.category)) {
+      const family = cl.category === 'founder' ? ['founder'] : ['ownership', 'investment'];
+      for (const w of links.filter((x) => x.origin === 'wikidata' && x.a === cl.a && x.b === cl.b && family.includes(x.category))) {
         for (const s of w.sources) if (!cl.sources.some((x) => x.url === s.url)) cl.sources.push(s);
         if (cl.since == null && w.since != null) cl.since = w.since;
         if (cl.until == null && w.until != null) cl.until = w.until;
@@ -720,6 +729,21 @@ async function main() {
   if (approx.length) console.log('Country-fallback pins (consider overrides):\n  ' + approx.join('\n  '));
   console.log(`warnings: ${warnings.length}`);
   console.log(`wrote ${path.relative(ROOT, OUT_FILE)} (${(fs.statSync(OUT_FILE).size / 1024).toFixed(0)} KB)`);
+}
+
+/** Up to 6 distinct alternative names (never the display name itself), seed-supplied former names first. */
+function buildAliases(name, cands) {
+  const seen = new Set([name.toLowerCase()]);
+  const out = [];
+  for (const c of cands) {
+    if (!c || typeof c !== 'string') continue;
+    const k = c.toLowerCase();
+    if (seen.has(k) || c.length > 60) continue;
+    seen.add(k);
+    out.push(c);
+    if (out.length >= 6) break;
+  }
+  return out;
 }
 
 function round(n) {
