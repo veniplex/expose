@@ -1,5 +1,5 @@
 /** Wikidata helpers: statement slimming, entity fetching, SPARQL discovery queries, class-based kind inference. */
-import { cachedJSON, sparql, chunk, qs } from './net.mjs';
+import { sparql, chunk } from './net.mjs';
 
 export const WP_API = 'https://en.wikipedia.org/w/api.php';
 export const WD_API = 'https://www.wikidata.org/w/api.php';
@@ -105,18 +105,96 @@ function slimEntity(e) {
   };
 }
 
-/** Fetch slimmed items (claims we care about) for QIDs. Missing items are omitted. */
-export async function fetchEntities(ids) {
+const ENT_PROPS = [...Object.keys(REL), 'P31', 'P279', 'P159', 'P551', 'P937', 'P19', 'P17', 'P495', 'P27', 'P36', 'P131'];
+const LIGHT_ENT_PROPS = ['P31', 'P17', 'P36', 'P131'];
+const TRUTHY_PROPS = ['P297', 'P1278', 'P5531', 'P18', 'P625', 'P571'];
+const LIGHT_TRUTHY_PROPS = ['P297', 'P625'];
+const vals = (ids) => ids.map((i) => `wd:${i}`).join(' ');
+const union = (branches) => branches.map((b) => `{ ${b} }`).join(' UNION ');
+const GENID = 'http://www.wikidata.org/.well-known/genid/';
+const yearStr = (v) => {
+  const m = /^(\d{4})-/.exec(typeof v === 'string' ? v : '');
+  const y = m ? parseInt(m[1], 10) : null;
+  return y && y > 0 ? y : null;
+};
+const parseWkt = (v) => {
+  const m = /^Point\(([-\d.e+]+) ([-\d.e+]+)\)$/.exec(typeof v === 'string' ? v : '');
+  return m ? { lat: Number(m[2]), lon: Number(m[1]) } : null;
+};
+
+/**
+ * Items + the claims we use, fetched through SPARQL (the wbgetentities API is bandwidth-throttled for bulk work).
+ * `light` is used for place items (label, country, capital, parent, coordinates only).
+ * Returns Map qid -> {id, label, description, aliases, wikipedia, sl, claims}; items without data are omitted.
+ */
+export async function fetchEntities(ids, { light = false } = {}) {
   const out = new Map();
-  for (const batch of chunk([...new Set(ids)].sort(), 50)) {
-    const url = `${WD_API}?${qs({ action: 'wbgetentities', format: 'json', ids: batch.join('|'), props: 'labels|descriptions|aliases|claims|sitelinks', languages: 'en|mul', sitefilter: 'enwiki' })}`;
-    const slim = await cachedJSON(url, (j) => {
-      const m = {};
-      for (const [k, e] of Object.entries(j.entities || {})) if (!e.missing) m[k] = slimEntity(e);
-      return m;
-    }, { minDelay: 200 });
-    for (const [k, e] of Object.entries(slim)) {
-      out.set(k, e);
+  const entProps = light ? LIGHT_ENT_PROPS : ENT_PROPS;
+  const truthy = light ? LIGHT_TRUTHY_PROPS : TRUTHY_PROPS;
+  for (const batch of chunk([...new Set(ids)].sort(), light ? 300 : 200)) {
+    const V = `VALUES ?s { ${vals(batch)} }`;
+    const basic = [
+      '?s wikibase:sitelinks ?o. BIND("sl" AS ?k)',
+      '?s rdfs:label ?o. FILTER(LANG(?o) = "en") BIND("label" AS ?k)',
+      ...(light ? [] : [
+        '?s schema:description ?o. FILTER(LANG(?o) = "en") BIND("desc" AS ?k)',
+        '?s skos:altLabel ?o. FILTER(LANG(?o) = "en") BIND("alias" AS ?k)',
+        '?a schema:about ?s; schema:isPartOf <https://en.wikipedia.org/>; schema:name ?o. BIND("wp" AS ?k)',
+      ]),
+      ...truthy.map((p) => `?s wdt:${p} ?o. BIND("${p}" AS ?k) BIND("t" AS ?t)`),
+      ...(light ? [] : METRIC_PROPS.map((p) => `?s p:${p} ?st. ?st psv:${p} ?v. ?v wikibase:quantityAmount ?o; wikibase:quantityUnit ?unit. ?st wikibase:rank ?rank. FILTER(?rank != wikibase:DeprecatedRank) OPTIONAL { ?st pq:P585 ?when } BIND("${p}" AS ?k) BIND("m" AS ?t)`)),
+    ];
+    const ent = entProps.map((p) => `?s p:${p} ?st. ?st ps:${p} ?o. FILTER(isIRI(?o)) ?st wikibase:rank ?rank. FILTER(?rank != wikibase:DeprecatedRank) OPTIONAL { ?st pq:P580 ?start } OPTIONAL { ?st pq:P582 ?end } OPTIONAL { ?st pq:P1107 ?pct } OPTIONAL { ?st pq:P625 ?coord } BIND("${p}" AS ?k)`);
+    const cols = '?s ?k ?t ?o ?rank ?start ?end ?pct ?coord ?unit ?when';
+    const rows = [
+      ...(await sparql(`SELECT DISTINCT ${cols} WHERE { ${V} ${union(basic)} }`)),
+      ...(await sparql(`SELECT DISTINCT ${cols} WHERE { ${V} ${union(ent)} }`)),
+    ];
+    const refRows = light ? [] : await sparql(`SELECT DISTINCT ?s ?k ?o ?url WHERE { ${V} ${union(Object.keys(REL).map((p) => `?s p:${p} ?st. ?st ps:${p} ?o. ?st prov:wasDerivedFrom/pr:P854 ?url. BIND("${p}" AS ?k)`))} }`);
+    const slim = new Map(batch.map((id) => [id, { id, label: null, description: null, aliases: [], wikipedia: null, sl: 0, claims: {} }]));
+    const seen = new Set();
+    for (const r of rows) {
+      const e = slim.get(r.s);
+      if (!e) continue;
+      switch (r.k) {
+        case 'sl': e.sl = r.o; break;
+        case 'label': e.label = r.o; break;
+        case 'desc': e.description = r.o; break;
+        case 'alias': if (e.aliases.length < 12) e.aliases.push(r.o); break;
+        case 'wp': e.wikipedia = r.o; break;
+        default: {
+          if (typeof r.o === 'string' && r.o.startsWith(GENID)) break;
+          const key = [r.s, r.k, r.o, r.rank, r.start, r.end, r.pct, r.unit, r.when].join('|');
+          if (seen.has(key)) break;
+          seen.add(key);
+          const q = {};
+          if (r.start) q.start = yearStr(r.start);
+          if (r.end) q.end = typeof r.end === 'string' && r.end.startsWith(GENID) ? 'unknown' : yearStr(r.end) ?? 'unknown';
+          if (typeof r.pct === 'number') q.pct = r.pct;
+          if (r.coord) q.coord = parseWkt(r.coord);
+          if (r.when) q.when = yearStr(r.when);
+          let v = r.o;
+          if (r.k === 'P625') v = parseWkt(r.o);
+          else if (r.k === 'P571') v = { y: yearStr(r.o) };
+          else if (r.k === 'P18' && typeof v === 'string') v = decodeURIComponent(v.split('/Special:FilePath/')[1] || '').replace(/_/g, ' ') || null;
+          if (v == null) break;
+          const st = { rank: r.rank && String(r.rank).endsWith('PreferredRank') ? 'preferred' : 'normal', v, q, refs: [] };
+          if (r.unit) st.u = String(r.unit).split('/').pop();
+          (e.claims[r.k] ||= []).push(st);
+        }
+      }
+    }
+    const refMap = new Map();
+    for (const r of refRows) {
+      const k = `${r.s}|${r.k}|${r.o}`;
+      const l = refMap.get(k) || [];
+      if (l.length < 2 && typeof r.url === 'string' && !l.includes(r.url)) l.push(r.url);
+      refMap.set(k, l);
+    }
+    for (const e of slim.values()) {
+      if (!e.label && !e.sl) continue; // no such item
+      for (const pid of METRIC_PROPS) if (e.claims[pid]) e.claims[pid] = e.claims[pid].sort((x, y) => (y.q.when || 0) - (x.q.when || 0)).slice(0, 4);
+      for (const [pid, sts] of Object.entries(e.claims)) if (REL[pid]) for (const st of sts) st.refs = refMap.get(`${e.id}|${pid}|${st.v}`) || [];
       out.set(e.id, e);
     }
   }
@@ -195,7 +273,9 @@ export async function classFlags(ids) {
 
 /** Kind inference. Seed `kind` overrides are applied by the caller. */
 export function inferKind(ent, flags, hint) {
-  if ((ent.claims?.P31 || []).some((s) => s.v === 'Q5')) return 'person';
+  const p31 = (ent.claims?.P31 || []).map((s) => s.v);
+  if (p31.includes('Q5')) return 'person';
+  if (p31.includes('Q3624078') || p31.includes('Q6256')) return 'government'; // sovereign state / country (some are also flagged as unions)
   const f = flags || new Set();
   if (f.has('party')) return 'party';
   if (f.has('media')) return 'media';

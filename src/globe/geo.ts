@@ -79,35 +79,44 @@ export function spreadPositions(
   rad: Float64Array,
   active: Uint8Array,
   out: { lat: Float64Array; lon: Float64Array },
-  iterations = 10,
+  iterations = 6,
+  /** start from the positions already in `out` (scaled previous layout) instead of the sunflower */
+  warm = false,
 ): void {
   const n = lat.length;
   const outLat = out.lat;
   const outLon = out.lon;
-  outLat.set(lat);
-  outLon.set(lon);
+  if (!warm) {
+    outLat.set(lat);
+    outLon.set(lon);
+  }
   if (n === 0) return;
-  let maxRad = 0;
-  for (let i = 0; i < n; i++) if (active[i] && rad[i] > maxRad) maxRad = rad[i];
-  if (maxRad <= 0) return;
+  if (!active.some((a) => a)) return;
 
-  // 1. sunflower for co-located pins (bucket at a fixed ~1 km resolution: identical city pins)
+  const act: number[] = [];
+  for (let i = 0; i < n; i++) if (active[i]) act.push(i);
+  const m = act.length;
+  const radsSorted = Float64Array.from(act, (i) => rad[i]).sort();
+  // typical pair distance
+  const pair = Math.max(1e-9, 2 * radsSorted[Math.floor(m * 0.5)]);
+
+  // 1. sunflower for pins closer than a typical pair distance (same city at this zoom)
   const bucket = new Map<number, number[]>();
-  for (let i = 0; i < n; i++) {
-    if (!active[i]) continue;
-    const key = Math.round((lat[i] + 90) * 100) * 40000 + Math.round((lon[i] + 180) * 100);
+  const BQ = Math.ceil(400 / pair) + 2;
+  for (const i of act) {
+    const key = Math.round((lat[i] + 100) / pair) * BQ + Math.round((lon[i] + 200) / pair);
     const arr = bucket.get(key);
     if (arr) arr.push(i);
     else bucket.set(key, [i]);
   }
   const GOLDEN = Math.PI * (3 - Math.sqrt(5));
-  for (const ids of bucket.values()) {
+  for (const ids of warm ? [] : bucket.values()) {
     if (ids.length < 2) continue;
     ids.sort((x, y) => weight[y] - weight[x] || x - y);
     let r0 = 0;
     for (const i of ids) r0 += rad[i];
-    // sunflower cell spacing ≈ average diameter
-    const c = (2 * r0) / ids.length / 1.75;
+    // sunflower cell spacing a little above the average diameter, so it starts (almost) overlap-free
+    const c = (2 * r0) / ids.length / 1.55;
     const cl = lat[ids[0]];
     const co = lon[ids[0]];
     const cosl = Math.max(0.2, Math.cos(cl * DEG));
@@ -119,62 +128,77 @@ export function spreadPositions(
     });
   }
 
-  // 2. relaxation over a hash grid (cell = largest pair distance)
-  const cell = maxRad * 2;
-  const grid = new Map<number, number[]>();
+  // 2. relaxation over a sorted cell index (cell ≈ a typical pair distance; big nodes search
+  //    a wider neighbourhood). No allocations per pass: keys are packed into one Float64Array.
+  const cell = pair;
   const COLS = Math.ceil(400 / cell) + 2;
+  const packed = new Float64Array(m);
+  const keys = new Float64Array(m);
+  const idx = new Int32Array(m);
+  const N = 8192;
+  const lowerBound = (k: number) => {
+    let lo = 0;
+    let hi = m;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (keys[mid] < k) lo = mid + 1;
+      else hi = mid;
+    }
+    return lo;
+  };
   for (let it = 0; it < iterations; it++) {
-    grid.clear();
-    for (let i = 0; i < n; i++) {
-      if (!active[i]) continue;
-      const cx = Math.floor((outLon[i] + 200) / cell);
-      const cy = Math.floor((outLat[i] + 100) / cell);
-      const key = cy * COLS + cx;
-      const arr = grid.get(key);
-      if (arr) arr.push(i);
-      else grid.set(key, [i]);
+    for (let k = 0; k < m; k++) {
+      const i = act[k];
+      const key = Math.floor((outLat[i] + 100) / cell) * COLS + Math.floor((outLon[i] + 200) / cell);
+      packed[k] = key * N + k;
+    }
+    packed.sort();
+    for (let k = 0; k < m; k++) {
+      const key = Math.floor(packed[k] / N);
+      keys[k] = key;
+      idx[k] = act[packed[k] - key * N];
     }
     let moved = 0;
-    for (let i = 0; i < n; i++) {
-      if (!active[i]) continue;
+    for (let k = 0; k < m; k++) {
+      const i = act[k];
       const cx = Math.floor((outLon[i] + 200) / cell);
       const cy = Math.floor((outLat[i] + 100) / cell);
       const cosl = Math.max(0.2, Math.cos(outLat[i] * DEG));
+      // each pair is resolved by its larger node, whose reach (2 × its radius) covers the pair
+      const reach = Math.max(1, Math.ceil((2 * rad[i]) / cell));
       // longitude cells shrink toward the poles: widen the search horizontally
-      const span = Math.min(6, Math.ceil(1 / cosl));
-      for (let gy = cy - 1; gy <= cy + 1; gy++) {
-        for (let gx = cx - span; gx <= cx + span; gx++) {
-          const arr = grid.get(gy * COLS + gx);
-          if (!arr) continue;
-          for (const j of arr) {
-            if (j <= i) continue;
-            const min = rad[i] + rad[j];
-            const dLat = outLat[j] - outLat[i];
-            if (dLat > min || dLat < -min) continue;
-            const dx = (outLon[j] - outLon[i]) * cosl;
-            if (dx > min || dx < -min) continue;
-            const d2 = dx * dx + dLat * dLat;
-            if (d2 >= min * min) continue;
-            const d = Math.sqrt(d2);
-            const push = d < 1e-9 ? min * 0.5 : ((min - d) / d) * 0.5;
-            const px = d < 1e-9 ? push * (((i * 7 + j) % 2) * 2 - 1) : dx * push;
-            const py = d < 1e-9 ? 0 : dLat * push;
-            // heavier (more influential) nodes move less
-            const wi = weight[j] + 0.25;
-            const wj = weight[i] + 0.25;
-            const fi = wi / (wi + wj);
-            const fj = 1 - fi;
-            outLat[i] -= py * fi;
-            outLon[i] -= (px * fi) / cosl;
-            outLat[j] += py * fj;
-            outLon[j] += (px * fj) / cosl;
-            moved++;
-          }
+      const spanX = Math.min(COLS, Math.ceil(reach / cosl));
+      for (let gy = cy - reach; gy <= cy + reach; gy++) {
+        const end = gy * COLS + cx + spanX;
+        for (let p = lowerBound(gy * COLS + cx - spanX); p < m && keys[p] <= end; p++) {
+          const j = idx[p];
+          if (j === i || rad[j] > rad[i] || (rad[j] === rad[i] && j < i)) continue;
+          const min = rad[i] + rad[j];
+          const dLat = outLat[j] - outLat[i];
+          if (dLat > min || dLat < -min) continue;
+          const dx = (outLon[j] - outLon[i]) * cosl;
+          if (dx > min || dx < -min) continue;
+          const d2 = dx * dx + dLat * dLat;
+          if (d2 >= min * min) continue;
+          const d = Math.sqrt(d2);
+          const push = d < 1e-9 ? min * 0.5 : ((min - d) / d) * 0.5;
+          const px = d < 1e-9 ? push * (((i * 7 + j) % 2) * 2 - 1) : dx * push;
+          const py = d < 1e-9 ? 0 : dLat * push;
+          // heavier (more influential) nodes move less
+          const wi = weight[j] + 0.25;
+          const wj = weight[i] + 0.25;
+          const fi = wi / (wi + wj);
+          const fj = 1 - fi;
+          outLat[i] -= py * fi;
+          outLon[i] -= (px * fi) / cosl;
+          outLat[j] += py * fj;
+          outLon[j] += (px * fj) / cosl;
+          moved++;
         }
       }
     }
-    for (let i = 0; i < n; i++) {
-      if (!active[i]) continue;
+    for (let k = 0; k < m; k++) {
+      const i = act[k];
       outLat[i] += (lat[i] - outLat[i]) * 0.03;
       outLon[i] += (lon[i] - outLon[i]) * 0.03;
     }

@@ -37,7 +37,9 @@
  *           organisations  max(market cap P2226, revenue P2139, total assets P2403) in USD
  *           governments    nominal GDP P2131 (else population P1082)
  *     raw = 0.45 N + 0.30 D + 0.25 W        (without W:  (0.45 N + 0.30 D) / 0.75, i.e. no penalty for unknown size)
- *     influence = rank of raw over all entities, in 0..1 (3 decimals); the top entity gets 1, the median 0.5.
+ *     influence = 0.5 * rank of raw over all entities + 0.5 * rank of raw within its group (person / government /
+ *                 party / other organisations), 3 decimals; so every group spreads over the whole 0..1 range while
+ *                 the global order still matters.
  *
  * Env: EXPOSE_UA overrides the User-Agent string.
  */
@@ -62,6 +64,7 @@ const STRICT = process.argv.includes('--strict');
 const FULL = process.argv.includes('--full');
 const MAX_ENTITIES = 2500;
 const MAX_SOURCES = 4;
+const LS_MAX = Number(process.env.EXPOSE_LS_MAX) || 1500; // LittleSis matching covers the most notable entities first
 const t0 = Date.now();
 const log = (...a) => console.log(`[${String(Math.round((Date.now() - t0) / 1000)).padStart(4)}s]`, ...a);
 
@@ -123,11 +126,11 @@ async function resolveGeo(entities) {
     for (const c of cands) if (typeof c.qid === 'string') need.add(c.qid);
     for (const pid of ['P17', 'P495', 'P27', 'P36']) for (const st of statements(e.data, pid).slice(0, 2)) if (typeof st.v === 'string') need.add(st.v);
   }
-  const items = await fetchEntities([...need]);
+  const items = await fetchEntities([...need], { light: true });
   const fetchMissing = async (pids) => {
     const more = new Set();
     for (const it of items.values()) for (const pid of pids) for (const st of statements(it, pid).slice(0, 2)) if (typeof st.v === 'string' && !items.has(st.v)) more.add(st.v);
-    for (const [k, v] of await fetchEntities([...more])) items.set(k, v);
+    for (const [k, v] of await fetchEntities([...more], { light: true })) items.set(k, v);
   };
   await fetchMissing(['P17', 'P36']); // countries + capitals of the places
   await fetchMissing(['P36']); // capitals of countries fetched above
@@ -145,7 +148,7 @@ async function resolveGeo(entities) {
       }
     }
     if (!up.size) break;
-    for (const [k, v] of await fetchEntities([...up])) items.set(k, v);
+    for (const [k, v] of await fetchEntities([...up], { light: true })) items.set(k, v);
   }
   function cityLabel(it) {
     let cur = it;
@@ -491,8 +494,15 @@ async function main() {
   const flags = await classFlags(nonPersonIds);
   const ents = [];
   const kindMismatch = [];
-  for (const e of reg.values()) {
+  let notOrg = 0;
+  for (const e of [...reg.values()]) {
     e.data = items.get(e.qid);
+    // auto-discovered items must be a person or classify as an organisation-like item; class items (P279) are never entities
+    if (!e.seed && !(e.data.claims.P31 || []).some((s) => s.v === 'Q5') && (!(flags.get(e.qid)?.size) || e.data.claims.P279)) {
+      reg.delete(e.qid);
+      notOrg++;
+      continue;
+    }
     e.kind = e.seed ? e.seed.kind : inferKind(e.data, flags.get(e.qid), e.hint);
     if (e.seed) {
       const inf = inferKind(e.data, flags.get(e.qid), null);
@@ -500,6 +510,7 @@ async function main() {
     }
     ents.push(e);
   }
+  log(`  dropped ${notOrg} non-person items without an organisation-like class`);
   const inSet = new Map(ents.map((e) => [e.qid, e]));
   for (const e of ents) if (e.data.id !== e.qid) inSet.set(e.data.id, e);
 
@@ -677,7 +688,8 @@ async function main() {
       }
       const lsEnts = entities
         .map((e) => ({ id: e.id, name: e.name, kind: e.kind, description: e.description, aliases: e.aliases, wpTitle: e.wikipedia ? decodeURIComponent(e.wikipedia.split('/wiki/')[1] || '').replace(/_/g, ' ') : '', s: reg.get(e.id)?.s || 0 }))
-        .sort((x, y) => y.s - x.s);
+        .sort((x, y) => y.s - x.s)
+        .slice(0, LS_MAX);
       const res = await importLittleSis(lsEnts, nb, log);
       lsSnap = { generatedAt: new Date().toISOString(), matches: res.matches, links: res.links };
       fs.mkdirSync(SNAP_DIR, { recursive: true });
@@ -773,6 +785,11 @@ async function main() {
   const SRC_RANK = (s) => (s.publisher === 'GLEIF' || s.publisher === 'LittleSis' ? 0 : s.publisher === 'Wikidata' ? 1 : s.publisher === 'Wikipedia' ? 2 : 3);
   for (const l of links) {
     for (const k of ['since', 'until', 'note', 'ended']) if (l[k] == null || l[k] === false) delete l[k];
+    if (l.until != null && l.since != null && l.until < l.since) {
+      l.until = undefined; // inconsistent source dates: keep the fact that it ended, drop the unreliable year
+      l.ended = true;
+      delete l.until;
+    }
     if (l.ended && l.until != null) delete l.ended;
     if (l.origin !== 'curated') l.sources = l.sources.map((s, i) => [s, i]).sort((x, y) => SRC_RANK(x[0]) - SRC_RANK(y[0]) || x[1] - y[1]).map((x) => x[0]);
     l.sources = l.sources.slice(0, MAX_SOURCES);
@@ -790,7 +807,6 @@ async function main() {
     if (!l.label || !l.inverseLabel) errors.push(`link ${l.id}: missing label`);
     if (!l.sources?.length) errors.push(`link ${l.id}: no sources`);
     for (const s of l.sources || []) if (!s.publisher || !s.title || !/^https?:\/\//.test(s.url || '')) errors.push(`link ${l.id}: malformed source`);
-    if (l.until != null && l.since != null && l.until < l.since) errors.push(`link ${l.id}: until < since`);
   }
   if (errors.length) throw new Error('Validation failed:\n' + errors.slice(0, 30).join('\n'));
 
@@ -883,7 +899,15 @@ function computeInfluence(entities, degree, regOf, items) {
   }
   const raw = entities.map((e, i) => (W[i] != null ? 0.45 * N[i] + 0.3 * Dg[i] + 0.25 * W[i] : (0.45 * N[i] + 0.3 * Dg[i]) / 0.75));
   const R = rankNormalise(raw);
-  entities.forEach((e, i) => (e.influence = Math.round(R[i] * 1000) / 1000));
+  // groups are ranked on their own too, so that people, countries, parties and organisations each get a spread
+  const grp = (e) => (e.kind === 'person' ? 'person' : e.kind === 'government' ? 'gov' : e.kind === 'party' ? 'party' : 'org');
+  const Rg = new Array(n);
+  for (const g of ['person', 'gov', 'party', 'org']) {
+    const idxs = entities.map((e, i) => i).filter((i) => grp(entities[i]) === g);
+    const r = rankNormalise(idxs.map((i) => raw[i]));
+    idxs.forEach((i, k) => (Rg[i] = r[k]));
+  }
+  entities.forEach((e, i) => (e.influence = Math.round((0.5 * R[i] + 0.5 * Rg[i]) * 1000) / 1000));
 }
 
 main().catch((e) => {

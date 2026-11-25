@@ -15,7 +15,7 @@ import { spreadPositions, toVec3 } from './geo';
 import { ATLAS_CELL, ATLAS_COLS, ATLAS_GLYPH, ATLAS_RANGE, ATLAS_ROWS, createGlyphAtlas } from './glyphAtlas';
 
 /** markers float just above the land dots / borders (kept low so they don't parallax at close zoom) */
-export const NODE_R = 1.0022;
+export const NODE_R = 1.0012;
 
 /** Per-node visual state, written into the `aState` attribute. */
 export const enum NodeState {
@@ -26,11 +26,15 @@ export const enum NodeState {
   Hidden = 4,
 }
 
-/** Glyph box size in CSS px: area ∝ influence, ~3.3× diameter range. */
-const BOX_MIN = 6.5;
-const BOX_MAX = 21;
+/**
+ * Glyph box size in CSS px from influence (0..1): 5 → 18 px, a 3.6× diameter range. The diameter
+ * grows a little faster than linearly so the few most influential entities stand out from the many
+ * mid-ranked ones (the pipeline's scores are spread roughly uniformly over 0..1).
+ */
+const BOX_MIN = 5;
+const BOX_MAX = 18;
 export const boxSize = (influence: number): number =>
-  BOX_MAX * Math.sqrt(Math.max((BOX_MIN / BOX_MAX) ** 2, Math.min(1, influence)));
+  BOX_MIN + (BOX_MAX - BOX_MIN) * Math.pow(Math.max(0, Math.min(1, influence)), 1.3);
 
 /**
  * Entity markers: one point sprite per entity in a single draw call. The sprite samples the
@@ -63,6 +67,8 @@ export class Nodes {
   private layoutVersion = -1;
   private layoutPxPerDeg = -1;
   private layoutZf = -1;
+  private layoutPair = -1;
+  private fullZf = -1;
   private settling = false;
   private scale = 1;
 
@@ -167,9 +173,10 @@ export class Nodes {
     const same =
       this.layoutVersion === this.activeVersion &&
       this.layoutPxPerDeg > 0 &&
-      Math.abs(pxPerDeg / this.layoutPxPerDeg - 1) < 0.07 &&
-      Math.abs(zf - this.layoutZf) < 0.05;
+      Math.abs(pxPerDeg / this.layoutPxPerDeg - 1) < 0.1 &&
+      Math.abs(zf - this.layoutZf) < 0.06;
     if (same && !immediate) return;
+    const activeChanged = this.layoutVersion !== this.activeVersion;
     this.layoutVersion = this.activeVersion;
     this.layoutPxPerDeg = pxPerDeg;
     this.layoutZf = zf;
@@ -181,7 +188,23 @@ export class Nodes {
       // visible glyph radius ≈ 0.36 × box
       this.rad[i] = (this.size[i] * this.scale * 0.36 * overlap + gap / 2) / pxPerDeg;
     }
-    spreadPositions(this.baseLat, this.baseLon, this.influence, this.rad, this.active, this.target);
+    // median pair distance in degrees: the whole pattern scales with it
+    const pair = 2 * Float64Array.from(this.rad).sort()[this.rad.length >> 1];
+    const warm = !immediate && !activeChanged && this.layoutPair > 0 && Math.abs(zf - this.fullZf) < 0.3;
+    if (warm) {
+      // scale the previous layout's offsets from the true pins, then let a couple of passes fix it
+      const k = pair / this.layoutPair;
+      const { lat, lon } = this.target;
+      for (let i = 0; i < lat.length; i++) {
+        lat[i] = this.baseLat[i] + (lat[i] - this.baseLat[i]) * k;
+        lon[i] = this.baseLon[i] + (lon[i] - this.baseLon[i]) * k;
+      }
+      spreadPositions(this.baseLat, this.baseLon, this.influence, this.rad, this.active, this.target, 2, true);
+    } else {
+      this.fullZf = zf;
+      spreadPositions(this.baseLat, this.baseLon, this.influence, this.rad, this.active, this.target);
+    }
+    this.layoutPair = pair;
     if (immediate) {
       this.curLat.set(this.target.lat);
       this.curLon.set(this.target.lon);

@@ -69,8 +69,8 @@ information.
 ## Deployment
 
 The site is deployed with Vercel, which builds every push to `main` (production) and every
-pull request (preview). `vercel.json` sets the build command: it refreshes the data from
-Wikidata first and falls back to the committed `public/data/graph.json` if that fails.
+pull request (preview). The build uses the committed `public/data/graph.json`; to refresh the
+data, run `npm run data` locally and commit the result.
 
 ## Licences
 

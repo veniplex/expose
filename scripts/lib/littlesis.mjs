@@ -16,7 +16,7 @@ import { cachedJSON, httpJSON, cached, pool, qs } from './net.mjs';
 import { ownershipWording } from './wd.mjs';
 
 const API = 'https://littlesis.org/api';
-const OPTS = { minDelay: 130, allow404: true, retries: 5 };
+const OPTS = { minDelay: 90, allow404: true, retries: 5 };
 const NOW_YEAR = new Date().getFullYear();
 
 const STOP_TOKENS = new Set(
@@ -162,7 +162,7 @@ export async function importLittleSis(ents, neighbours, log) {
   // ---- phase 1: search
   const cand = new Map(); // qid -> [candidate]
   let searched = 0;
-  await pool(ents, 3, async (e) => {
+  await pool(ents, 5, async (e) => {
     const org = e.kind !== 'person';
     const names = new Set([normName(e.name, org)]);
     if (e.wpTitle) names.add(normName(e.wpTitle, org));
@@ -182,7 +182,7 @@ export async function importLittleSis(ents, neighbours, log) {
   const relsOf = new Map();
   const todo = [...allIds.keys()];
   let done = 0;
-  await pool(todo, 3, async (id) => {
+  await pool(todo, 5, async (id) => {
     try {
       relsOf.set(id, await relationships(id));
     } catch (e) {

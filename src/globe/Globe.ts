@@ -117,6 +117,11 @@ export class Globe {
   private invWorld = new Matrix4();
   private perf = { frames: 0, total: 0, max: 0 };
   private occluders: Box[] = [];
+  private layoutPending = false;
+  private lastLayout = 0;
+  private lastArcRefresh = 0;
+  private arcsStale = false;
+  private perfPart = { layout: 0, tick: 0, gl: 0, labels: 0 };
 
   constructor(
     private container: HTMLElement,
@@ -283,11 +288,16 @@ export class Globe {
       frames: p.frames,
       avgFrameMs: p.frames ? p.total / p.frames : 0,
       maxFrameMs: p.max,
+      layoutMs: this.perfPart.layout / Math.max(1, p.frames),
+      tickMs: this.perfPart.tick / Math.max(1, p.frames),
+      glMs: this.perfPart.gl / Math.max(1, p.frames),
+      labelsMs: this.perfPart.labels / Math.max(1, p.frames),
     };
   }
 
   resetPerf(): void {
     this.perf = { frames: 0, total: 0, max: 0 };
+    this.perfPart = { layout: 0, tick: 0, gl: 0, labels: 0 };
   }
 
   /** Jump the view (tests): centre on lat/lon at zoom `mag` (clamped). */
@@ -382,6 +392,11 @@ export class Globe {
     this.dragging = true;
     this.fly = null;
     this.nudgeX = this.nudgeY = 0;
+    if (dx === 0 && dy === 0) {
+      // finger rested before lifting: no inertia
+      this.velX = this.velY = 0;
+      return;
+    }
     // grab the surface: 1px of pointer movement ≈ 1px of surface movement at the globe centre
     const r = this.pxPerRad;
     const ay = dx / (r * Math.max(0.35, Math.cos(this.rotX)));
@@ -537,7 +552,7 @@ export class Globe {
     orbitLine.visible = om.opacity > 0.005;
 
     // markers grow only a little when zoomed in
-    this.nodes.setScale(0.92 + 0.3 * zf);
+    this.nodes.setScale(0.85 + 0.3 * zf);
 
     // land: coarse point matrix far out, procedural fine matrix (sphere shader) when zoomed in
     const grid = this.maskReady ? smoothstep(8.5, 13, 1.05 * pxPerDeg) : 0;
@@ -646,6 +661,7 @@ export class Globe {
   private frame = (now: number) => {
     if (!this.running) return;
     this.raf = requestAnimationFrame(this.frame);
+    const t0 = performance.now();
     const dt = Math.min(0.05, (now - this.last) / 1000);
     this.last = now;
     let animating = false;
@@ -713,32 +729,60 @@ export class Globe {
       }
     }
 
+    const tA = performance.now();
     if (camera) {
       this.updateCamera();
+      this.layoutPending = true;
+      animating = true;
+    }
+    // re-spread markers for the new zoom, throttled while the zoom is still moving
+    if (this.layoutPending && (!camera || now - this.lastLayout > 110)) {
+      this.layoutPending = false;
+      this.lastLayout = now;
       this.nodes.layout(this.pxPerRad * DEG, this.zf);
-      animating = true;
     }
-
+    const tB = performance.now();
     if (this.nodes.tick()) {
+      // arcs follow moving markers; rebuilding every frame is wasteful, ~20 fps is plenty
+      if (now - this.lastArcRefresh > 50) {
+        this.arcs.refresh();
+        this.lastArcRefresh = now;
+        this.arcsStale = false;
+      } else this.arcsStale = true;
+      animating = true;
+    } else if (this.arcsStale) {
       this.arcs.refresh();
+      this.arcsStale = false;
       animating = true;
     }
+    const tC = performance.now();
+    this.perfPart.layout += tB - tA;
+    this.perfPart.tick += tC - tB;
     if (this.arcs.hasFocus && !this.reduced) {
       this.time += dt;
       animating = true;
     }
 
-    if (animating || this.dirty) this.render();
+    if (animating || this.dirty) {
+      this.render();
+      // CPU time of the whole frame (layout, arc rebuilds, projection, labels, draw submission)
+      const ms = performance.now() - t0;
+      this.perf.frames++;
+      this.perf.total += ms;
+      if (ms > this.perf.max) this.perf.max = ms;
+    }
   };
 
   private render(): void {
-    const t0 = performance.now();
     this.dirty = false;
     this.frameNo++;
     this.world.rotation.set(this.rotX, this.rotY, 0);
     this.world.updateMatrixWorld(true);
+    const t0 = performance.now();
     this.arcs.tick(this.time, !this.reduced);
     this.renderer.render(this.scene, this.camera);
+    const t1 = performance.now();
+    this.perfPart.gl += t1 - t0;
 
     this.nodes.project(this.world, this.camera, this.w, this.h, this.screen);
     const sel = this.state.selected;
@@ -772,9 +816,6 @@ export class Globe {
         return { x: (v.x * 0.5 + 0.5) * this.w, y: (-v.y * 0.5 + 0.5) * this.h, f: v.z < 1 ? f : -1 };
       },
     });
-    const dt = performance.now() - t0;
-    this.perf.frames++;
-    this.perf.total += dt;
-    if (dt > this.perf.max) this.perf.max = dt;
+    this.perfPart.labels += performance.now() - t1;
   }
 }
