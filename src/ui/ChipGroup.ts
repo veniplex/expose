@@ -39,9 +39,10 @@ export function ChipGroup<T extends string>(p: ChipGroupProps<T>): ChipGroup {
     let timer = 0;
     let longPressed = false;
     const chip = h(
-      `button.chip${it.icon ? '.with-icon' : ''}`,
+      'button.chip',
       {
         type: 'button',
+        class: it.icon ? 'with-icon' : null,
         'aria-pressed': 'true',
         style: it.token ? `--c: var(${it.token})` : null,
         title: `${it.label} — click to show/hide · double-click or long-press to show only this`,

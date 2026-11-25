@@ -57,6 +57,7 @@ export const ICONS = {
   reset: '<path d="M4 12a8 8 0 1 0 2.4-5.7"/><path d="M4 4v5h5"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/>',
   arrow: '<path d="M5 12h14M13 6l6 6-6 6"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
 };
 
 export const reducedMotion = (): boolean =>
