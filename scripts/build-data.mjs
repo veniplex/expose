@@ -130,7 +130,10 @@ const REL = {
   P1327: { pl: 'partner in business or sport', cat: 'investment', a: 'sym', label: 'Business partner', inv: 'Business partner' },
 };
 const REL_ORDER = ['P127', 'P1830', 'P749', 'P355', 'P112', 'P169', 'P488', 'P1037', 'P3320', 'P108', 'P102', 'P463', 'P26', 'P40', 'P22', 'P25', 'P3373', 'P6', 'P35', 'P1327'];
-const KEEP_PROPS = new Set([...Object.keys(REL), 'P159', 'P551', 'P937', 'P19', 'P17', 'P495', 'P27', 'P36', 'P625', 'P18', 'P571', 'P297', 'P131']);
+const KEEP_PROPS = new Set([...Object.keys(REL), 'P159', 'P551', 'P937', 'P19', 'P17', 'P495', 'P27', 'P36', 'P625', 'P18', 'P571', 'P297', 'P131', 'P31']);
+// P31 classes of "place" items that are buildings/venues/neighbourhoods rather than cities: the pin keeps their
+// coordinates but the displayed place walks up P131 (located in) to a city-level item.
+const SUBCITY_CLASSES = new Set(['Q41176', 'Q3947', 'Q16560', 'Q11303', 'Q1021645', 'Q11755880', 'Q811979', 'Q1497364', 'Q483110', 'Q24354', 'Q33506', 'Q123705', 'Q188509', 'Q2983893', 'Q79007', 'Q4989906', 'Q57821', 'Q1137809', 'Q180673', 'Q2065736']);
 const CATEGORIES = new Set(['ownership', 'leadership', 'founder', 'investment', 'politics']);
 const KINDS = new Set(['person', 'company', 'organization', 'government', 'fund']);
 
@@ -187,6 +190,7 @@ function slimEntity(e) {
     id: e.id,
     label: e.labels?.en?.value ?? e.labels?.mul?.value ?? null,
     description: e.descriptions?.en?.value ?? null,
+    aliases: (e.aliases?.en || []).map((x) => x.value).slice(0, 12),
     wikipedia: e.sitelinks?.enwiki?.title ?? null,
     claims,
   };
@@ -195,7 +199,7 @@ function slimEntity(e) {
 async function fetchEntities(ids) {
   const out = new Map();
   for (const batch of chunk([...new Set(ids)], 25)) {
-    const url = `${WD_API}?${qs({ action: 'wbgetentities', format: 'json', ids: batch.join('|'), props: 'labels|descriptions|claims|sitelinks', languages: 'en|mul', sitefilter: 'enwiki' })}`;
+    const url = `${WD_API}?${qs({ action: 'wbgetentities', format: 'json', ids: batch.join('|'), props: 'labels|descriptions|aliases|claims|sitelinks', languages: 'en|mul', sitefilter: 'enwiki' })}`;
     const slim = await cachedJSON(url, (j) => {
       const m = {};
       for (const [k, e] of Object.entries(j.entities || {})) if (!e.missing) m[k] = slimEntity(e);
@@ -269,6 +273,33 @@ async function resolveGeo(entities) {
   for (const it of items.values()) for (const st of statements(it, 'P36').slice(0, 2)) if (typeof st.v === 'string' && !items.has(st.v)) need3.add(st.v);
   for (const [k, v] of await fetchEntities([...need3])) items.set(k, v);
 
+  // Walk up P131 for building/venue/neighbourhood-type places to get a city-level display name.
+  for (let round = 0; round < 3; round++) {
+    const up = new Set();
+    for (const c of [...candsByQid.values()].flat()) {
+      let it = items.get(c.qid);
+      for (let d = 0; it && isSubcity(it) && d < 4; d++) {
+        const parent = statements(it, 'P131')[0]?.v;
+        if (typeof parent !== 'string') break;
+        if (!items.has(parent)) up.add(parent);
+        it = items.get(parent);
+      }
+    }
+    if (!up.size) break;
+    for (const [k, v] of await fetchEntities([...up])) items.set(k, v);
+  }
+  function isSubcity(it) {
+    return (it.claims?.P31 || []).some((st) => SUBCITY_CLASSES.has(st.v));
+  }
+  function cityLabel(it) {
+    let cur = it;
+    for (let d = 0; cur && isSubcity(cur) && d < 4; d++) {
+      const parent = items.get(statements(cur, 'P131')[0]?.v);
+      if (!parent) break;
+      cur = parent;
+    }
+    return cur?.label ?? it.label;
+  }
   const coordOf = (it) => {
     const st = statements(it, 'P625')[0];
     return st && st.v && typeof st.v === 'object' ? st.v : null;
@@ -319,7 +350,7 @@ async function resolveGeo(entities) {
         if (!it) continue;
         const co = c.coord || coordOf(it);
         if (co) {
-          g = { lat: co.lat, lon: co.lon, place: it.label, country: countryOfItem(it) };
+          g = { lat: co.lat, lon: co.lon, place: cityLabel(it), country: countryOfItem(it) };
           break;
         }
       }
