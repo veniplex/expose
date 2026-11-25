@@ -17,8 +17,9 @@ import type { Nodes } from './Nodes';
 import { sampleArc, segmentsFor } from './geo';
 import { createPulseMaterial } from './layers';
 
-const focusLift = (w: number) => Math.min(0.42, 0.025 + w * 0.17);
-const ambientLift = (w: number) => Math.min(0.11, 0.008 + w * 0.05);
+/** Arc height above the surface for central angle w; `k` shrinks the minimum lift at close zoom. */
+const focusLift = (w: number, k: number) => Math.min(0.42, 0.025 * k + w * 0.17);
+const ambientLift = (w: number, k: number) => Math.min(0.11, 0.008 * k + w * 0.05);
 
 interface ArcSample {
   edge: Edge;
@@ -45,6 +46,7 @@ export class Arcs {
   private focusEdges: Edge[] = [];
   private hiKey: string | null = null;
   private focusDim = false;
+  private liftK = 1;
 
   constructor(
     private index: GraphIndex,
@@ -121,6 +123,13 @@ export class Arcs {
     this.rebuildFocus();
   }
 
+  /** Scale of the minimum arc lift (1 at the overview, → 0 when zoomed in). Returns true if changed. */
+  setLiftScale(k: number): boolean {
+    if (Math.abs(k / this.liftK - 1) < 0.15) return false;
+    this.liftK = k;
+    return true;
+  }
+
   /** Re-sample everything (node positions moved). */
   refresh(): void {
     this.rebuildAmbient();
@@ -145,7 +154,7 @@ export class Arcs {
       if (!ep) continue;
       const w = Math.acos(Math.min(1, Math.max(-1, ep[0].dot(ep[1]))));
       const seg = Math.max(6, Math.min(40, Math.ceil(w * 16)));
-      sampleArc(ep[0], ep[1], seg, ambientLift, tmp, 0, 1.003);
+      sampleArc(ep[0], ep[1], seg, (w) => ambientLift(w, this.liftK), tmp, 0, 1.0018);
       const out = new Float32Array(seg * 6);
       for (let i = 0; i < seg; i++) {
         out.set(tmp.subarray(i * 3, i * 3 + 6), i * 6);
@@ -153,10 +162,11 @@ export class Arcs {
       parts.push(out);
       total += out.length;
       const c = this.theme.category[l.category];
-      const da = this.index.degree.get(l.a) ?? 1;
-      const db = this.index.degree.get(l.b) ?? 1;
-      const strength = Math.sqrt(Math.min(da, db) / this.index.maxDegree);
-      const alpha = 0.05 + 0.2 * strength;
+      // more influential endpoints = a more visible strand
+      const ia = this.index.influence.get(l.a) ?? 0;
+      const ib = this.index.influence.get(l.b) ?? 0;
+      const strength = Math.sqrt(Math.min(ia, ib));
+      const alpha = 0.035 + 0.22 * strength;
       for (let i = 0; i < seg * 2; i++) {
         cols.push(c.r, c.g, c.b);
         // fade the very ends a bit so the web doesn't clump on top of markers
@@ -184,7 +194,7 @@ export class Arcs {
     const w = Math.acos(Math.min(1, Math.max(-1, ep[0].dot(ep[1]))));
     const seg = segmentsFor(w);
     const pts = new Float32Array((seg + 1) * 3);
-    sampleArc(ep[0], ep[1], seg, focusLift, pts, 0, 1.006);
+    sampleArc(ep[0], ep[1], seg, (w) => focusLift(w, this.liftK), pts, 0, 1.0024);
     return { edge: l, pts, n: seg + 1, color: this.theme.category[l.category], phase: (i * 0.618) % 1 };
   }
 

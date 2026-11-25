@@ -10,10 +10,12 @@ import {
 } from 'three';
 import type { GraphIndex } from '../data';
 import type { Theme } from '../theme';
-import { KIND_SHAPE } from '../config';
+import { kindMeta } from '../kinds';
 import { spreadPositions, toVec3 } from './geo';
+import { ATLAS_CELL, ATLAS_COLS, ATLAS_GLYPH, ATLAS_RANGE, ATLAS_ROWS, createGlyphAtlas } from './glyphAtlas';
 
-export const NODE_R = 1.006;
+/** markers float just above the land dots / borders (kept low so they don't parallax at close zoom) */
+export const NODE_R = 1.0022;
 
 /** Per-node visual state, written into the `aState` attribute. */
 export const enum NodeState {
@@ -21,14 +23,31 @@ export const enum NodeState {
   Dim = 1,
   Neighbour = 2,
   Selected = 3,
+  Hidden = 4,
 }
 
-/** Entity markers: one point sprite per entity, shape by kind, size by degree. */
+/** Glyph box size in CSS px: area ∝ influence, ~3.3× diameter range. */
+const BOX_MIN = 6.5;
+const BOX_MAX = 21;
+export const boxSize = (influence: number): number =>
+  BOX_MAX * Math.sqrt(Math.max((BOX_MIN / BOX_MAX) ** 2, Math.min(1, influence)));
+
+/**
+ * Entity markers: one point sprite per entity in a single draw call. The sprite samples the
+ * kind's glyph from a signed-distance-field atlas (same SVG paths as the UI icons); its size comes
+ * from the entity's influence.
+ */
 export class Nodes {
   readonly points: Points;
   /** displayed unit-sphere positions (after co-location spreading) */
   readonly pos: Vector3[];
-  readonly size: Float32Array; // CSS px
+  /** glyph box size per node, CSS px (before the zoom scale) */
+  readonly size: Float32Array;
+  readonly influence: Float64Array;
+  readonly ids: string[];
+  readonly indexOf = new Map<string, number>();
+  /** 1 = kind shown; hidden nodes are not drawn, picked, labelled or spread */
+  readonly active: Uint8Array;
   private geo = new BufferGeometry();
   private mat: ShaderMaterial;
   private posAttr: BufferAttribute;
@@ -36,15 +55,16 @@ export class Nodes {
   private colorAttr: BufferAttribute;
   private baseLat: Float64Array;
   private baseLon: Float64Array;
-  private weight: Float64Array;
-  private targetLat: Float64Array;
-  private targetLon: Float64Array;
+  private target: { lat: Float64Array; lon: Float64Array };
   private curLat: Float64Array;
   private curLon: Float64Array;
-  private spacing = -1;
+  private rad: Float64Array;
+  private activeVersion = 0;
+  private layoutVersion = -1;
+  private layoutPxPerDeg = -1;
+  private layoutZf = -1;
   private settling = false;
-  readonly ids: string[];
-  readonly indexOf = new Map<string, number>();
+  private scale = 1;
 
   constructor(
     index: GraphIndex,
@@ -56,19 +76,19 @@ export class Nodes {
     this.ids.forEach((id, i) => this.indexOf.set(id, i));
     this.baseLat = Float64Array.from(index.entities, (e) => (Number.isFinite(e.lat) ? e.lat : 0));
     this.baseLon = Float64Array.from(index.entities, (e) => (Number.isFinite(e.lon) ? e.lon : 0));
-    this.weight = Float64Array.from(index.entities, (e) => index.degree.get(e.id) ?? 0);
-    this.targetLat = Float64Array.from(this.baseLat);
-    this.targetLon = Float64Array.from(this.baseLon);
+    this.influence = Float64Array.from(index.entities, (e) => index.influence.get(e.id) ?? 0);
+    this.target = { lat: Float64Array.from(this.baseLat), lon: Float64Array.from(this.baseLon) };
     this.curLat = Float64Array.from(this.baseLat);
     this.curLon = Float64Array.from(this.baseLon);
+    this.rad = new Float64Array(n);
+    this.active = new Uint8Array(n).fill(1);
     this.pos = index.entities.map((_, i) => toVec3(this.baseLat[i], this.baseLon[i]));
 
     this.size = new Float32Array(n);
-    const shape = new Float32Array(n);
+    const cell = new Float32Array(n);
     index.entities.forEach((e, i) => {
-      const d = index.degree.get(e.id) ?? 0;
-      this.size[i] = 5 + 9 * Math.sqrt(d / index.maxDegree);
-      shape[i] = KIND_SHAPE[e.kind] ?? 2;
+      this.size[i] = boxSize(this.influence[i]);
+      cell[i] = kindMeta(e.kind).atlas;
     });
 
     this.posAttr = new BufferAttribute(new Float32Array(n * 3), 3);
@@ -76,66 +96,93 @@ export class Nodes {
     this.colorAttr = new BufferAttribute(new Float32Array(n * 3), 3);
     this.geo.setAttribute('position', this.posAttr);
     this.geo.setAttribute('aSize', new BufferAttribute(this.size, 1));
-    this.geo.setAttribute('aShape', new BufferAttribute(shape, 1));
+    this.geo.setAttribute('aCell', new BufferAttribute(cell, 1));
     this.geo.setAttribute('aState', this.stateAttr);
     this.geo.setAttribute('color', this.colorAttr);
     this.writePositions();
     this.setStates(new Map(), null);
 
+    const f = (x: number) => x.toFixed(4);
     this.mat = new ShaderMaterial({
       transparent: true,
       depthWrite: false,
       vertexColors: true,
-      uniforms: { uDpr: { value: dpr }, uScale: { value: 1 }, uHover: { value: -1 } },
+      uniforms: {
+        uDpr: { value: dpr },
+        uScale: { value: 1 },
+        uHover: { value: -1 },
+        uAtlas: { value: createGlyphAtlas() },
+      },
       vertexShader: /* glsl */ `
-        attribute float aSize; attribute float aShape; attribute float aState;
+        attribute float aSize; attribute float aCell; attribute float aState;
         uniform float uDpr; uniform float uScale; uniform float uHover;
-        varying float vShape; varying float vState; varying float vA; varying vec3 vC; varying float vPx;
+        varying float vCell; varying float vState; varying float vA; varying vec3 vC; varying float vPx;
         void main() {
           vec4 world = modelMatrix * vec4(position, 1.0);
           float f = dot(normalize(world.xyz), normalize(cameraPosition - world.xyz));
           vA = smoothstep(0.0, 0.18, f);
-          vShape = aShape; vState = aState; vC = color;
+          vCell = aCell; vState = aState; vC = color;
           float s = aSize * uScale;
-          if (aState > 2.5) s += 3.0;
-          if (abs(float(gl_VertexID) - uHover) < 0.5) s += 3.0;
-          vPx = s * uDpr;
+          if (aState > 2.5 && aState < 3.5) s += 4.0;
+          if (abs(float(gl_VertexID) - uHover) < 0.5) s += 4.0;
+          vPx = s / ${f(ATLAS_GLYPH)} * uDpr;
+          if (aState > 3.5) { vPx = 0.0; vA = 0.0; }
           gl_PointSize = vPx;
           gl_Position = projectionMatrix * viewMatrix * world;
         }`,
       fragmentShader: /* glsl */ `
-        varying float vShape; varying float vState; varying float vA; varying vec3 vC; varying float vPx;
+        uniform sampler2D uAtlas; uniform float uDpr;
+        varying float vCell; varying float vState; varying float vA; varying vec3 vC; varying float vPx;
         void main() {
-          vec2 p = (gl_PointCoord - 0.5) * 2.0; // -1..1
-          float px = 2.0 / vPx;                  // one device pixel in p units
-          float d;                               // signed distance-ish, <0 inside
-          if (vShape < 0.5) d = length(p) - 1.0 + px;                       // circle
-          else if (vShape < 1.5) d = max(abs(p.x), abs(p.y)) - 0.82 + px;  // square
-          else d = (abs(p.x) + abs(p.y)) * 0.8 - 0.86 + px;                 // diamond
-          float fill = 1.0 - smoothstep(-px, px, d);
-          if (fill < 0.01) discard;
-          // organisations get a darker core so the shape reads as an outlined block
-          float edge = 1.0 - smoothstep(-px * 2.6, -px * 1.2, d);
-          float core = vShape < 0.5 ? 1.0 : mix(1.0, 0.38, edge);
-          float alpha = vState > 0.5 && vState < 1.5 ? 0.28 : 1.0;
-          gl_FragColor = vec4(vC * core, fill * vA * alpha);
+          if (vA < 0.004) discard;
+          vec2 cell = vec2(mod(vCell, ${f(ATLAS_COLS)}), floor(vCell / ${f(ATLAS_COLS)}));
+          vec2 uv = (cell + gl_PointCoord) / vec2(${f(ATLAS_COLS)}, ${f(ATLAS_ROWS)});
+          // signed distance in device px (+ inside the glyph)
+          float sd = (texture2D(uAtlas, uv).r - 0.5) * ${f(2 * ATLAS_RANGE)} * vPx / ${f(ATLAS_CELL)};
+          float fill = clamp(sd + 0.5, 0.0, 1.0);
+          // a dark keyline separates overlapping markers
+          float ring = clamp(sd + 0.5 + 1.25 * uDpr, 0.0, 1.0);
+          float a = max(fill, ring * 0.85);
+          if (a < 0.01) discard;
+          float alpha = vState > 0.5 && vState < 1.5 ? 0.3 : 1.0;
+          gl_FragColor = vec4(vC * (fill / max(a, 0.001)), a * vA * alpha);
         }`,
     });
     this.points = new Points(this.geo, this.mat);
     this.points.renderOrder = 4;
+    this.points.frustumCulled = false;
   }
 
-  /** Spread co-located nodes so markers stay `spacingPx` apart at globe radius `radiusPx`. */
-  layout(radiusPx: number, spacingPx = 13, immediate = false): void {
-    const spacing = (spacingPx / radiusPx) * (180 / Math.PI);
-    if (this.spacing > 0 && Math.abs(spacing / this.spacing - 1) < 0.06 && !immediate) return;
-    this.spacing = spacing;
-    const r = spreadPositions(this.baseLat, this.baseLon, this.weight, spacing);
-    this.targetLat = r.lat;
-    this.targetLon = r.lon;
+  /** On-screen pick / label radius of node i in CSS px. */
+  radiusPx(i: number): number {
+    return this.size[i] * this.scale * 0.36;
+  }
+
+  /**
+   * Spread co-located nodes for the current zoom. `pxPerDeg` = screen px per degree at the globe
+   * centre, `zf` = 0 (overview) … 1 (closest zoom). Far out, markers may overlap (clusters read
+   * as one blob); as you zoom in the spacing grows until every marker is separately tappable.
+   */
+  layout(pxPerDeg: number, zf: number, immediate = false): void {
+    const same =
+      this.layoutVersion === this.activeVersion &&
+      this.layoutPxPerDeg > 0 &&
+      Math.abs(pxPerDeg / this.layoutPxPerDeg - 1) < 0.07 &&
+      Math.abs(zf - this.layoutZf) < 0.05;
+    if (same && !immediate) return;
+    this.layoutVersion = this.activeVersion;
+    this.layoutPxPerDeg = pxPerDeg;
+    this.layoutZf = zf;
+    const overlap = 0.42 + 0.58 * Math.min(1, zf / 0.55);
+    const gap = 0.5 + 5 * Math.min(1, zf / 0.7);
+    for (let i = 0; i < this.rad.length; i++) {
+      // visible glyph radius ≈ 0.36 × box
+      this.rad[i] = (this.size[i] * this.scale * 0.36 * overlap + gap / 2) / pxPerDeg;
+    }
+    spreadPositions(this.baseLat, this.baseLon, this.influence, this.rad, this.active, this.target);
     if (immediate) {
-      this.curLat.set(r.lat);
-      this.curLon.set(r.lon);
+      this.curLat.set(this.target.lat);
+      this.curLon.set(this.target.lon);
       this.writePositions();
       this.settling = false;
     } else this.settling = true;
@@ -145,16 +192,20 @@ export class Nodes {
   tick(): boolean {
     if (!this.settling) return false;
     let maxD = 0;
+    const tl = this.target.lat;
+    const tn = this.target.lon;
     for (let i = 0; i < this.curLat.length; i++) {
-      const dl = this.targetLat[i] - this.curLat[i];
-      const dn = this.targetLon[i] - this.curLon[i];
+      const dl = tl[i] - this.curLat[i];
+      const dn = tn[i] - this.curLon[i];
       this.curLat[i] += dl * 0.25;
       this.curLon[i] += dn * 0.25;
-      maxD = Math.max(maxD, Math.abs(dl), Math.abs(dn));
+      const m = Math.abs(dl) + Math.abs(dn);
+      if (m > maxD) maxD = m;
     }
-    if (maxD < 0.002) {
-      this.curLat.set(this.targetLat);
-      this.curLon.set(this.targetLon);
+    // settle threshold relative to the current scale (≈ 0.3 px)
+    if (maxD * this.layoutPxPerDeg < 0.3) {
+      this.curLat.set(tl);
+      this.curLon.set(tn);
       this.settling = false;
     }
     this.writePositions();
@@ -163,6 +214,10 @@ export class Nodes {
 
   displayedLatLon(i: number): [number, number] {
     return [this.curLat[i], this.curLon[i]];
+  }
+
+  trueLatLon(i: number): [number, number] {
+    return [this.baseLat[i], this.baseLon[i]];
   }
 
   private writePositions(): void {
@@ -174,7 +229,20 @@ export class Nodes {
       arr[i * 3 + 2] = this.pos[i].z * NODE_R;
     }
     this.posAttr.needsUpdate = true;
-    this.geo.computeBoundingSphere();
+  }
+
+  /** Which nodes are shown (by kind filter). Returns true when the set changed. */
+  setActive(isActive: (i: number) => boolean): boolean {
+    let changed = false;
+    for (let i = 0; i < this.active.length; i++) {
+      const v = isActive(i) ? 1 : 0;
+      if (v !== this.active[i]) {
+        this.active[i] = v;
+        changed = true;
+      }
+    }
+    if (changed) this.activeVersion++;
+    return changed;
   }
 
   /** Apply per-node state + colour. `states` maps entity id -> state/colour override. */
@@ -184,7 +252,8 @@ export class Nodes {
     const anySelected = selected !== null;
     for (let i = 0; i < this.ids.length; i++) {
       const s = states.get(this.ids[i]);
-      const state = s ? s.state : anySelected ? NodeState.Dim : NodeState.Normal;
+      let state = s ? s.state : anySelected ? NodeState.Dim : NodeState.Normal;
+      if (!this.active?.[i] && state !== NodeState.Selected) state = NodeState.Hidden;
       st[i] = state;
       const c =
         s?.color ??
@@ -197,11 +266,16 @@ export class Nodes {
     this.colorAttr.needsUpdate = true;
   }
 
+  isHidden(i: number): boolean {
+    return (this.stateAttr.array as Float32Array)[i] === NodeState.Hidden;
+  }
+
   setHover(i: number): void {
     this.mat.uniforms.uHover.value = i;
   }
 
   setScale(s: number): void {
+    this.scale = s;
     this.mat.uniforms.uScale.value = s;
   }
 
@@ -211,21 +285,32 @@ export class Nodes {
   }
 
   /**
-   * Project every node to CSS pixels. `out[i*3+2]` is the facing factor (<=0: behind the globe).
+   * Project every node to CSS pixels. `out[i*3+2]` is the facing factor (<=0: behind the globe,
+   * -1 for hidden nodes).
    */
   project(parent: Object3D, camera: Camera, w: number, h: number, out: Float32Array): void {
     const v = new Vector3();
     const camPos = camera.position;
+    const st = this.stateAttr.array as Float32Array;
     for (let i = 0; i < this.pos.length; i++) {
+      if (st[i] === NodeState.Hidden) {
+        out[i * 3 + 2] = -1;
+        continue;
+      }
       this.world(i, parent, v);
       const nx = v.x, ny = v.y, nz = v.z;
       const len = Math.hypot(nx, ny, nz);
       const vx = camPos.x - nx, vy = camPos.y - ny, vz = camPos.z - nz;
       const facing = (nx * vx + ny * vy + nz * vz) / (len * Math.hypot(vx, vy, vz));
+      if (facing <= 0) {
+        out[i * 3 + 2] = facing;
+        continue;
+      }
       v.project(camera);
       out[i * 3] = (v.x * 0.5 + 0.5) * w;
       out[i * 3 + 1] = (-v.y * 0.5 + 0.5) * h;
-      out[i * 3 + 2] = facing;
+      // in front of the camera's near plane only
+      out[i * 3 + 2] = v.z < 1 ? facing : -1;
     }
   }
 

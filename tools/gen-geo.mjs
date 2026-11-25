@@ -37,11 +37,10 @@ try {
 mkdirSync(outDir, { recursive: true });
 
 /* ---------- borders + coastline polylines ---------- */
-// File layout (little-endian):
-//   u32 magic 'EXGB', u32 borderLineCount, u32 coastLineCount, u32 totalPoints
-//   u16 pointCount per line (borders first, then coastlines)
-//   i16 pairs (lon * 32767/180, lat * 32767/90) per point; the first point of each line is
-//   absolute, the rest are deltas to the previous point (small numbers -> gzip/brotli friendly)
+// File layout: u32 magic 'EXGB', u32 borderLineCount, u32 coastLineCount, u32 totalPoints,
+// then a byte stream of zigzag varints: per line its point count, then per point (lon, lat)
+// quantised to lon * 32767/180, lat * 32767/90 — the first point absolute, the rest as deltas
+// to the previous point. ~2 bytes per point and still compresses well.
 const Q_LON = 32767 / 180;
 const Q_LAT = 32767 / 90;
 const MIN_STEP = 0.01; // drop points closer than this (degrees) to the previous one
@@ -72,27 +71,34 @@ const borders = lines(mesh(topo, topo.objects.countries, (a, b) => a !== b));
 const coast = lines(mesh(topo, topo.objects.countries, (a, b) => a === b));
 const all = [...borders, ...coast];
 const total = all.reduce((s, l) => s + l.length, 0);
-const buf = Buffer.alloc(16 + all.length * 2 + (all.length % 2) * 2 + total * 4);
-buf.write('EXGB', 0, 'ascii');
-buf.writeUInt32LE(borders.length, 4);
-buf.writeUInt32LE(coast.length, 8);
-buf.writeUInt32LE(total, 12);
-let o = 16;
-for (const l of all) (buf.writeUInt16LE(l.length, o), (o += 2));
-if (all.length % 2) o += 2; // keep the Int16 block 4-byte aligned
+const bytes = [];
+const varint = (v) => {
+  let z = v < 0 ? -2 * v - 1 : 2 * v; // zigzag
+  while (z >= 0x80) {
+    bytes.push((z & 0x7f) | 0x80);
+    z >>>= 7;
+  }
+  bytes.push(z);
+};
 for (const l of all) {
+  varint(l.length);
   let px = 0;
   let py = 0;
   l.forEach(([lon, lat], i) => {
     const qx = Math.round(lon * Q_LON);
     const qy = Math.round(lat * Q_LAT);
-    buf.writeInt16LE(i ? qx - px : qx, o);
-    buf.writeInt16LE(i ? qy - py : qy, o + 2);
+    varint(i ? qx - px : qx);
+    varint(i ? qy - py : qy);
     px = qx;
     py = qy;
-    o += 4;
   });
 }
+const buf = Buffer.alloc(16 + bytes.length);
+buf.write('EXGB', 0, 'ascii');
+buf.writeUInt32LE(borders.length, 4);
+buf.writeUInt32LE(coast.length, 8);
+buf.writeUInt32LE(total, 12);
+Buffer.from(bytes).copy(buf, 16);
 writeFileSync(outs[0], buf);
 console.log(`[gen-geo] borders.bin: ${borders.length} border + ${coast.length} coast lines, ${total} points, ${buf.length} bytes`);
 
@@ -179,7 +185,7 @@ const mb = Buffer.alloc(8 + maskBytes);
 mb.write('EXLM', 0, 'ascii');
 mb.writeUInt16LE(W, 4);
 mb.writeUInt16LE(H, 6);
-o = 8;
+let o = 8;
 for (const runs of rows) {
   mb.writeUInt16LE(runs.length, o);
   o += 2;
