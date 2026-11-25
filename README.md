@@ -68,9 +68,9 @@ information.
 
 ## Deployment
 
-`.github/workflows/deploy.yml` builds and publishes to GitHub Pages on every push to `main`,
-weekly (refreshing the data from Wikidata first) and on manual dispatch. In the repository
-settings, set **Pages → Source** to **GitHub Actions**.
+The site is deployed with Vercel, which builds every push to `main` (production) and every
+pull request (preview). `vercel.json` sets the build command: it refreshes the data from
+Wikidata first and falls back to the committed `public/data/graph.json` if that fails.
 
 ## Licences
 
