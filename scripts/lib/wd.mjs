@@ -255,7 +255,9 @@ export const CLASS_FLAGS = {
   igo: ['Q245065', 'Q484652'],
   govt: ['Q3624078', 'Q6256', 'Q7188'],
   agency: ['Q327333'],
-  company: ['Q4830453', 'Q783794', 'Q891723'],
+  company: ['Q4830453', 'Q783794', 'Q891723', 'Q219577', 'Q22687', 'Q6881511'],
+  inst: ['Q3918', 'Q2385804', 'Q33506', 'Q7075', 'Q875538', 'Q902104'], // universities, museums, libraries
+  place: ['Q486972', 'Q56061'], // human settlements, administrative territorial entities
   org: ['Q43229'],
 };
 const FLAG_OF = new Map(Object.entries(CLASS_FLAGS).flatMap(([f, qs_]) => qs_.map((q) => [q, f])));
@@ -278,13 +280,13 @@ export function inferKind(ent, flags, hint) {
   if (p31.includes('Q3624078') || p31.includes('Q6256')) return 'government'; // sovereign state / country (some are also flagged as unions)
   const f = flags || new Set();
   if (f.has('party')) return 'party';
+  if (f.has('inst') && !f.has('fund')) return 'organization';
   if (f.has('media')) return 'media';
   if (f.has('fund')) return 'fund';
   if (f.has('cbank') || f.has('igo')) return 'organization';
   if (f.has('govt')) return 'government';
   if (f.has('company')) return 'company';
   if (f.has('agency')) return 'government';
-  if (hint && hint !== 'person') return hint;
   return 'organization';
 }
 

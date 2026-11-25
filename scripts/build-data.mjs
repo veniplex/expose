@@ -498,7 +498,7 @@ async function main() {
   for (const e of [...reg.values()]) {
     e.data = items.get(e.qid);
     // auto-discovered items must be a person or classify as an organisation-like item; class items (P279) are never entities
-    if (!e.seed && !(e.data.claims.P31 || []).some((s) => s.v === 'Q5') && (!(flags.get(e.qid)?.size) || e.data.claims.P279)) {
+    if (!e.seed && !(e.data.claims.P31 || []).some((s) => s.v === 'Q5') && (!(flags.get(e.qid)?.size) || e.data.claims.P279 || (flags.get(e.qid).has('place') && !flags.get(e.qid).has('govt') && !flags.get(e.qid).has('party')))) {
       reg.delete(e.qid);
       notOrg++;
       continue;
@@ -566,11 +566,15 @@ async function main() {
   function addLink(l, fam) {
     const key = `${l.a}|${l.b}|${l.category}|${fam}`;
     const list = linkIndex.get(key) || [];
-    for (const ex of list) {
-      if (compatible(ex.since, l.since)) {
+    // a lower-precedence source (GLEIF, LittleSis) corroborates an existing link of another origin whatever its dates
+    const other = l.origin !== 'wikidata' ? list.find((ex) => ex.origin !== l.origin && compatible(ex.since, l.since)) || list.find((ex) => ex.origin !== l.origin) : null;
+    for (const ex of other ? [other] : list) {
+      if (other || compatible(ex.since, l.since)) {
         // mirrored / duplicate statement or another source: merge, first (higher precedence) wins
-        if (ex.since == null) ex.since = l.since;
-        if (ex.until == null) ex.until = l.until;
+        if (!other) {
+          if (ex.since == null) ex.since = l.since;
+          if (ex.until == null) ex.until = l.until;
+        }
         if (!ex.note && l.note) ex.note = l.note;
         if (ex.label === 'Parent' && l.label !== 'Parent') {
           ex.label = l.label;

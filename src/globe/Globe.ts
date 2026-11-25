@@ -87,9 +87,8 @@ export class Globe {
   private mag = 1;
   private magTarget = 1;
   private magMax = 60;
-  /** pending rotation that keeps the zoom anchor under the pointer */
-  private nudgeX = 0;
-  private nudgeY = 0;
+  /** surface point (radians) kept under the pointer while a wheel / pinch zoom eases */
+  private anchor: { lat: number; lon: number; x: number; y: number } | null = null;
   private fly: { fx: number; fy: number; tx: number; ty: number; t0: number; dur: number; dip: number } | null = null;
   private flyDip = 1;
   private autoRotate = true;
@@ -171,7 +170,7 @@ export class Globe {
       dragEnd: () => {
         this.dragging = false;
       },
-      zoom: (f, x, y) => this.zoomBy(f, x, y),
+      zoom: (f, x, y, pinch) => this.zoomBy(f, x, y, pinch),
       tap: (x, y, coarse) => {
         const i = this.pick(x, y, coarse ? 22 : 10);
         if (i >= 0) this.events.pick(this.nodes.ids[i]);
@@ -237,25 +236,31 @@ export class Globe {
   }
 
   /** Multiply the zoom; with (x, y) the surface point under that screen position stays put. */
-  zoomBy(f: number, x?: number, y?: number): void {
+  zoomBy(f: number, x?: number, y?: number, pinch?: 'start' | 'move'): void {
     const next = Math.min(this.magMax, Math.max(ZOOM_MIN, this.magTarget * f));
-    const k = next / this.magTarget;
     this.magTarget = next;
-    if (x !== undefined && y !== undefined && Math.abs(k - 1) > 1e-4) {
-      const p = this.latLonAt(x, y);
-      if (p) {
-        const t = this.rotationKeeping(p.lat, p.lon, x, y, next);
-        this.fly = null;
-        this.nudgeX = t.x - this.rotX;
-        this.nudgeY = t.y - this.rotY;
+    if (x !== undefined && y !== undefined) {
+      const a = this.anchor;
+      if (a && (pinch === 'move' || (!pinch && Math.abs(a.x - x) < 3 && Math.abs(a.y - y) < 3))) {
+        // same gesture: keep the anchored surface point (a pinch also drags it with the fingers),
+        // so it can't drift while the zoom is still easing
+        a.x = x;
+        a.y = y;
+      } else {
+        const p = this.latLonAt(x, y);
+        this.anchor = p ? { lat: p.lat, lon: p.lon, x, y } : null;
       }
-    }
+      if (this.anchor) {
+        this.fly = null;
+        this.velX = this.velY = 0;
+      }
+    } else this.anchor = null;
     this.interacted();
   }
 
   resetView(): void {
     this.magTarget = 1;
-    this.nudgeX = this.nudgeY = 0;
+    this.anchor = null;
     this.interacted();
     const sel = this.state.selected;
     if (sel) this.flyTo(sel);
@@ -305,7 +310,7 @@ export class Globe {
   /** Jump the view (tests): centre on lat/lon at zoom `mag` (clamped). */
   view(lat: number, lon: number, mag: number): void {
     this.fly = null;
-    this.nudgeX = this.nudgeY = 0;
+    this.anchor = null;
     this.velX = this.velY = 0;
     this.rotX = Math.max(-1.25, Math.min(1.25, lat * DEG));
     this.rotY = -lon * DEG;
@@ -357,7 +362,7 @@ export class Globe {
     const tx = Math.max(-1.25, Math.min(1.25, lat * DEG));
     const ty = this.rotY + wrapPi(-lon * DEG - this.rotY);
     this.velX = this.velY = 0;
-    this.nudgeX = this.nudgeY = 0;
+    this.anchor = null;
     if (this.reduced) {
       this.rotX = tx;
       this.rotY = ty;
@@ -393,7 +398,7 @@ export class Globe {
   private onDrag(dx: number, dy: number, dtMs: number): void {
     this.dragging = true;
     this.fly = null;
-    this.nudgeX = this.nudgeY = 0;
+    this.anchor = null;
     if (dx === 0 && dy === 0) {
       // finger rested before lifting: no inertia
       this.velX = this.velY = 0;
@@ -727,12 +732,13 @@ export class Globe {
       if (Math.abs(Math.log(this.magTarget / this.mag)) < 1e-4) this.mag = this.magTarget;
       camera = true;
     }
-    if (Math.abs(this.nudgeX) > 1e-7 || Math.abs(this.nudgeY) > 1e-7) {
-      const kk = Math.abs(lz) > 1e-4 ? k : 1;
-      this.rotX = Math.max(-1.3, Math.min(1.3, this.rotX + this.nudgeX * kk));
-      this.rotY += this.nudgeY * kk;
-      this.nudgeX *= 1 - kk;
-      this.nudgeY *= 1 - kk;
+    if (this.anchor) {
+      // zoom about the anchor: solve the rotation that keeps it under the pointer at this zoom
+      const a = this.anchor;
+      const t = this.rotationKeeping(a.lat, a.lon, a.x, a.y, this.mag);
+      this.rotX = t.x;
+      this.rotY = t.y;
+      if (this.mag === this.magTarget) this.anchor = null;
       animating = true;
     }
 

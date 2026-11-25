@@ -163,8 +163,12 @@ export class Labels {
       const limit = Math.max(cap * 2, Math.round(fr.rank.length * (0.03 + 0.97 * Math.pow(zf, 1.4))));
       let taken = 0;
       const tier: LabelTier = fr.ambient === 'dim' ? 'dim' : 'top';
-      for (let k = 0; k < Math.min(limit, fr.rank.length) && taken < cap * 2; k++) {
+      // `limit` counts only entities of shown kinds, so filtering to one kind still labels its top ones
+      let considered = 0;
+      for (let k = 0; k < fr.rank.length && considered < limit && taken < cap * 2; k++) {
         const i = fr.rank[k];
+        if (screen[i * 3 + 2] === -1) continue; // hidden kind
+        considered++;
         if (used.has(i)) continue;
         const x = screen[i * 3];
         const y = screen[i * 3 + 1];

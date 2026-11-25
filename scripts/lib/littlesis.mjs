@@ -9,7 +9,7 @@
  *        A) its blurb/summary contains a distinctive keyword from our description or from the names of entities we
  *           already connect it to, or
  *        C) it has a relationship with an entity that is already one of our Wikidata/curated neighbours, or
- *        B) it has >= 2 relationships to other matched candidates (persons) / >= 1 (organisations).
+ *        B) (persons only) it has >= 3 relationships to other candidates.
  *   3. Exactly one corroborated candidate -> match; none or several -> skipped. A LittleSis id may map to one entity only.
  */
 import { cachedJSON, httpJSON, cached, pool, qs } from './net.mjs';
@@ -135,7 +135,7 @@ export function convert(rel, A, B) {
       return { ...mk(A, B, 'politics', m ? `Donor (${m} total)` : 'Donor', 'Received donations from', 'Donor'), amount: rel.amt > 0 ? rel.amt : undefined };
     }
     case 6:
-      return mk(...(A.id < B.id ? [A, B] : [B, A]), 'investment', 'Business partner', 'Business partner', 'Business partner');
+      return mk(...(A.id < B.id ? [A, B] : [B, A]), 'investment', 'Business relationship', 'Business relationship', 'Business partner');
     case 7:
       return mk(A, B, 'politics', 'Lobbies', 'Lobbied by', 'Lobbies');
     case 9:
@@ -218,8 +218,9 @@ export async function importLittleSis(ents, neighbours, log) {
           if (neighbours.get(qid)?.has(oq)) C++;
         }
       }
-      const need = e.kind === 'person' ? 2 : 1;
-      if (A || C >= 1 || B >= need) okHits.push(h);
+      // relationships to other candidates alone are only enough for people with several of them (generic org names
+      // such as "Democratic Party" exist in many countries)
+      if (A || C >= 1 || (e.kind === 'person' && B >= 3)) okHits.push(h);
     }
     if (okHits.length === 1) matches.set(qid, okHits[0].id);
   }
@@ -232,8 +233,10 @@ export async function importLittleSis(ents, neighbours, log) {
   const lsToQid = new Map([...matches].map(([q, id]) => [id, q]));
   const links = [];
   const seen = new Set();
+  const posCount = new Map();
   for (const [qid, id] of matches) {
-    for (const r of relsOf.get(id) || []) {
+    const ordered = [...(relsOf.get(id) || [])].sort((x, y) => (y.cur === true) - (x.cur === true) || (yearFrom(y.s) || 0) - (yearFrom(x.s) || 0));
+    for (const r of ordered) {
       if (seen.has(r.id)) continue;
       const q1 = lsToQid.get(r.e1);
       const q2 = lsToQid.get(r.e2);
@@ -243,6 +246,12 @@ export async function importLittleSis(ents, neighbours, log) {
       const B = byQid.get(q2);
       const l = convert(r, A, B);
       if (!l) continue;
+      if (r.c === 1) {
+        // a career can have many titles at the same organisation: keep at most 3 (current / latest first)
+        const k = r.e1 + '|' + r.e2;
+        if ((posCount.get(k) || 0) >= 3) continue;
+        posCount.set(k, (posCount.get(k) || 0) + 1);
+      }
       const a = byQid.get(l.a);
       const b = byQid.get(l.b);
       const note = tidy(rel_note(r));
